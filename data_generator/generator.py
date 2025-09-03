@@ -10,6 +10,8 @@ Based on requirements from POC document sections 3.1-3.4.
 import random
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from faker import Faker
 from typing import List, Dict, Any, Optional
 import ulid
@@ -46,7 +48,7 @@ class Generator:
         self.fake = Faker()
         Faker.seed(seed)
         
-        # Business assumptions (documented in assumptions.py)
+        # Business assumptions
         self._init_assumptions()
     
     def _init_assumptions(self):
@@ -185,7 +187,7 @@ class Generator:
             },
             "data_source": "synthetic.v1",
             "source_timestamp": self._generate_source_timestamp(),
-            "ingestion_timestamp": datetime.now().isoformat(),
+            "ingestion_timestamp": "2024-01-01T00:00:00",  # Fixed timestamp for deterministic generation
             "schema_version": "1.0.0"
         }
     
@@ -294,12 +296,53 @@ class Generator:
                 future_date = datetime.now() + timedelta(days=random.randint(1, 30))
                 supplier["source_timestamp"] = future_date.isoformat()
         
-        print(f"✓ Injected anomalies in {len(dirty_indices)} records")
+        print(f"Injected anomalies in {len(dirty_indices)} records")
         return dirty_suppliers
+    
+    def export_to_parquet(self, data: List[Dict[str, Any]], filename: str):
+        """
+        Export generated data to Parquet file with proper schema and compression.
+        
+        Args:
+            data: List of records to export
+            filename: Output Parquet filename
+        """
+        if not data:
+            print("No data to export")
+            return
+        
+        print(f"Exporting {len(data)} records to {filename}...")
+        
+        # Convert to DataFrame
+        df = pd.DataFrame(data)
+        
+        # Handle nested structures properly for Parquet
+        if 'geo_coords' in df.columns:
+            df['geo_lat'] = df['geo_coords'].apply(lambda x: x['lat'] if x else None)
+            df['geo_lon'] = df['geo_coords'].apply(lambda x: x['lon'] if x else None)
+            df = df.drop('geo_coords', axis=1)
+        
+        # Convert arrays to strings (Parquet doesn't handle mixed arrays well)
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                # Check if column contains lists
+                sample_val = df[col].dropna().iloc[0] if not df[col].dropna().empty else None
+                if isinstance(sample_val, list):
+                    df[col] = df[col].apply(lambda x: ','.join(map(str, x)) if x else '')
+        
+        # Export with compression and proper row group size (128MB as per doc)
+        df.to_parquet(
+            filename,
+            compression='snappy',
+            row_group_size=50000,  # Adjust based on record size
+            index=False
+        )
+        
+        print(f"Exported to {filename}")
     
     def export_to_csv(self, data: List[Dict[str, Any]], filename: str):
         """
-        Export generated data to CSV file.
+        Export generated data to CSV file (for debugging/inspection only).
         
         Args:
             data: List of records to export
@@ -340,11 +383,12 @@ class Generator:
         print(f"Exported to {filename}")
 
 
+# Example usage
 if __name__ == "__main__":
     generator = Generator(seed=42, tenant_id="tenant_acme")
     # Generate clean suppliers
-    suppliers = generator.generate_suppliers(count=10)  # Start small for testing
+    suppliers = generator.generate_suppliers(count=1000)  # Start small for testing
     # Inject dirty data
-    dirty_suppliers = generator.inject_dirty_data(suppliers, anomaly_rate=0.06)    
-    # Export to CSV
-    generator.export_to_csv(dirty_suppliers, "suppliers_test.csv")
+    dirty_suppliers = generator.inject_dirty_data(suppliers, anomaly_rate=0.06)
+    # Export to Parquet (primary format for pipeline)
+    generator.export_to_parquet(dirty_suppliers, "suppliers_test.parquet")
