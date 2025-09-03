@@ -2,3 +2,5 @@ numpy
 pandas
 faker
 ulid-py
+pyarrow
+pytest
