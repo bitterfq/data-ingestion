@@ -173,10 +173,10 @@ class Generator:
             "incoterms": np.random.choice(["DDP", "FOB", "CIF", "EXW"], p=[0.4, 0.3, 0.2, 0.1]),
             "lead_time_days_avg": lead_time_avg,
             "lead_time_days_p95": lead_time_p95,
-            "on_time_delivery_rate": round(on_time_rate, 2),
+            "on_time_delivery_rate": float(round(on_time_rate, 2)),
             "defect_rate_ppm": int(abs(np.random.normal(250, 180))),
             "capacity_units_per_week": int(abs(np.random.normal(5000, 3000))) + 100,
-            "risk_score": risk_score,
+            "risk_score": float(risk_score),
             "financial_risk_tier": financial_tier,
             "certifications": certifications,
             "compliance_flags": self._generate_compliance_flags(),
@@ -248,11 +248,12 @@ class Generator:
         lead_time_p95 = int(
             np.clip(np.random.normal(lead_mean + 8, lead_std), 5, 250))
 
-        # Unit cost: log-normal distribution (wide tail for specialty parts)
-        unit_cost = round(float(np.exp(np.random.normal(3.0, 0.8))), 2)
+        # Unit cost: log-normal distribution (wide tail for specialty parts) - convert to native float
+        unit_cost = float(np.exp(np.random.normal(3.0, 0.8)))
+        unit_cost = round(unit_cost, 2)
 
         # Qualified suppliers (1-3 suppliers per part for referential integrity)
-        num_qualified = np.random.choice([1, 2, 3], p=[0.6, 0.3, 0.1])
+        num_qualified = int(np.random.choice([1, 2, 3], p=[0.6, 0.3, 0.1]))
         if len(supplier_ids) < num_qualified:
             num_qualified = len(supplier_ids)
 
@@ -264,29 +265,29 @@ class Generator:
         default_supplier_id = qualified_supplier_ids[0]
 
         # Lifecycle status distribution (from doc: ACTIVE 75%, NEW 10%, etc.)
-        lifecycle_status = np.random.choice(
+        lifecycle_status = str(np.random.choice(
             ["ACTIVE", "NEW", "NRND", "EOL"],
             p=[0.75, 0.10, 0.10, 0.05]
-        )
+        ))
 
         # Quality grade distribution
-        quality_grade = np.random.choice(
+        quality_grade = str(np.random.choice(
             ["A", "B", "C"],
             p=[0.6, 0.3, 0.1]
-        )
+        ))
 
-        # MOQ (Minimum Order Quantity) - discrete common values
-        moq = np.random.choice([1, 10, 50, 100, 500])
+        # MOQ (Minimum Order Quantity) - discrete common values, convert to native int
+        moq = int(np.random.choice([1, 10, 50, 100, 500]))
 
         # Unit of measure
-        uom = np.random.choice(["EA", "KG", "M"], p=[0.7, 0.2, 0.1])
+        uom = str(np.random.choice(["EA", "KG", "M"], p=[0.7, 0.2, 0.1]))
 
         return {
             "part_id": part_id,
             "tenant_id": self.tenant_id,
             "part_number": f"P-{random.randint(100000, 999999)}",
             "description": self.fake.sentence(nb_words=5),
-            "category": category,
+            "category": str(category),
             "lifecycle_status": lifecycle_status,
             "uom": uom,
             "spec_hash": f"SPEC_{ulid.new().str[:16]}",
@@ -577,15 +578,5 @@ if __name__ == "__main__":
         parts, data_type="parts", anomaly_rate=0.06)
 
     # Export both datasets
-    generator.export_to_parquet(dirty_suppliers, "data_generator/data/suppliers_test.parquet")
-    generator.export_to_parquet(dirty_parts, "data_generator/data/parts_test.parquet")
-
-    generator.export_to_csv(
-        dirty_suppliers, "data_generator/data/suppliers_test.csv")
-    
-    generator.export_to_csv(
-        dirty_suppliers, "data_generator/data/parts_test.csv"
-    )
-    
-    
-
+    generator.export_to_parquet(dirty_suppliers, "suppliers_test.parquet")
+    generator.export_to_parquet(dirty_parts, "parts_test.parquet")
