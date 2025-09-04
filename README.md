@@ -11,6 +11,19 @@ Enterprise-ready data pipeline for ingesting 30k suppliers + 30k parts with scal
 - **Quality**: Great Expectations (validation gates)
 - **Monitoring**: Prometheus + Grafana
 
+```mermaid
+flowchart TD
+    A[Airbyte - Ingestion] --> B[Apache Iceberg - Storage]
+    B --> C[Apache Spark - Processing]
+    C --> D[Great Expectations - Quality]
+    D --> E[Apache Airflow - Orchestration]
+    E --> F[Prometheus & Grafana - Monitoring]
+
+    %% Feedback loops
+    F -.-> A
+    F -.-> E
+```
+
 ## Performance Targets
 - **Baseline**: 60k records in <20 minutes (4-node Spark cluster)
 - **Scale**: 600k records in <60 minutes (12-node Spark cluster)
