@@ -3,4 +3,5 @@
 
 1. Implement testing for parts generator
 2. document all choices for the data_generator
-3. code variables into ENV variable for option setting
+3. code variables into ENV variable for option
+4. data generation files should go in data_generator/data
