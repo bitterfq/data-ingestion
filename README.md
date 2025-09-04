@@ -13,15 +13,32 @@ Enterprise-ready data pipeline for ingesting 30k suppliers + 30k parts with scal
 
 ```mermaid
 flowchart TD
-    A["Airbyte<br/>Ingestion"] --> B["Apache Iceberg<br/>Storage"]
-    B --> C["Apache Spark<br/>Processing"]
-    C --> D["Great Expectations<br/>Quality"]
-    D --> E["Apache Airflow<br/>Orchestration"]
-    E --> F["Prometheus & Grafana<br/>Monitoring"]
+    %% Core components
+    A["Airbyte<br/>Ingestion"]
+    B["Apache Iceberg<br/>Lakehouse Storage"]
+    C["Apache Spark<br/>Processing"]
+    D["Great Expectations<br/>Data Quality"]
+    E["Apache Airflow<br/>Orchestration"]
+    PG["Prometheus & Grafana<br/>Monitoring & Alerts"]
+
+    %% Orchestration-driven flow
+    E -->|trigger runs| A
+    A -->|write/read| B
+    E -->|schedule jobs| C
+    C -->|read/write| B
+    C -->|validate with| D
+    D -->|results & checks| E
+
+    %% Monitoring across the pipeline (dashed = observe/scrape)
+    PG -.->|metrics/exporters| A
+    PG -.->|table/IO metrics| B
+    PG -.->|job/runtime metrics| C
+    PG -.->|validation metrics| D
+    PG -.->|DAG/task metrics| E
 
     %% Feedback loops
-    F -.-> A
-    F -.-> E
+    D -.->|failures/tests trigger retries| E
+    PG -.->|alerts/incidents inform| E
 ```
 
 ## Performance Targets
