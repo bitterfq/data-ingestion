@@ -7,16 +7,19 @@ and dirty data injection for testing data pipeline quality gates.
 Based on requirements from POC document sections 3.1-3.4.
 """
 
+import os
 import random
 import numpy as np
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 from faker import Faker
 from typing import List, Dict, Any, Optional
 import ulid
 from datetime import datetime, timedelta
 import csv
+
+# MinIO imports
+from minio import Minio
+from minio.error import S3Error
 
 
 class Generator:
@@ -85,25 +88,12 @@ class Generator:
         }
 
     def _calculate_risk_score(self, on_time_rate: float) -> float:
-        """
-        Calculate risk score inversely correlated with on-time delivery rate.
-        
-        Business assumption: High on-time delivery → lower risk
-        Formula: Inverse relationship with some noise
-        
-        Args:
-            on_time_rate: On-time delivery percentage [60, 100]
-            
-        Returns:
-            Risk score [0, 100] with bimodal distribution (safe 20-40, risky 60-85)
-        """
+        """Calculate risk score inversely correlated with on-time delivery rate."""
         # Base risk inversely related to on-time performance
         base_risk = max(0, 100 - on_time_rate)
-
         # Add controlled noise to create bimodal clusters
         noise = np.random.normal(0, 8)
         risk_score = np.clip(base_risk + noise, 0, 100)
-
         return round(risk_score, 2)
 
     def _determine_financial_tier(self, risk_score: float) -> str:
@@ -114,16 +104,10 @@ class Generator:
         return "HIGH"  # Default for scores >= 60
 
     def _generate_supplier_record(self) -> Dict[str, Any]:
-        """
-        Generate single realistic supplier record.
-        
-        Returns:
-            Dictionary containing supplier data matching canonical schema
-        """
+        """Generate single realistic supplier record."""
         supplier_id = ulid.new().str
 
         # Generate correlated performance metrics
-        # On-time rate: normal(μ=93, σ=5), cap [60, 100] per doc
         on_time_rate = np.clip(np.random.normal(93, 5), 60, 100)
         risk_score = self._calculate_risk_score(on_time_rate)
         financial_tier = self._determine_financial_tier(risk_score)
@@ -189,7 +173,6 @@ class Generator:
             },
             "data_source": "synthetic.v1",
             "source_timestamp": self._generate_source_timestamp(),
-            # Fixed timestamp for deterministic generation
             "ingestion_timestamp": "2024-01-01T00:00:00",
             "schema_version": "1.0.0"
         }
@@ -224,31 +207,21 @@ class Generator:
         return timestamp.isoformat()
 
     def _generate_part_record(self, supplier_ids: List[str]) -> Dict[str, Any]:
-        """
-        Generate single realistic part record with supplier references.
-        
-        Args:
-            supplier_ids: List of available supplier IDs for FK references
-            
-        Returns:
-            Dictionary containing part data matching canonical schema
-        """
+        """Generate single realistic part record with supplier references."""
         part_id = ulid.new().str
 
-        # Category distribution (from doc: ELECTRICAL 35%, MECHANICAL 35%, etc.)
+        # Category distribution
         category = np.random.choice(
-            self.part_categories,
-            p=self.category_weights
-        )
+            self.part_categories, p=self.category_weights)
 
-        # Lead times by category (correlation: ELECTRICAL longest, RAW_MATERIAL shortest)
+        # Lead times by category
         lead_mean, lead_std = self.category_lead_times[category]
         lead_time_avg = int(
             np.clip(np.random.normal(lead_mean, lead_std), 2, 200))
         lead_time_p95 = int(
             np.clip(np.random.normal(lead_mean + 8, lead_std), 5, 250))
 
-        # Unit cost: log-normal distribution (wide tail for specialty parts) - convert to native float
+        # Unit cost: log-normal distribution
         unit_cost = float(np.exp(np.random.normal(3.0, 0.8)))
         unit_cost = round(unit_cost, 2)
 
@@ -264,22 +237,15 @@ class Generator:
         ))
         default_supplier_id = qualified_supplier_ids[0]
 
-        # Lifecycle status distribution (from doc: ACTIVE 75%, NEW 10%, etc.)
+        # Other attributes
         lifecycle_status = str(np.random.choice(
             ["ACTIVE", "NEW", "NRND", "EOL"],
             p=[0.75, 0.10, 0.10, 0.05]
         ))
 
-        # Quality grade distribution
         quality_grade = str(np.random.choice(
-            ["A", "B", "C"],
-            p=[0.6, 0.3, 0.1]
-        ))
-
-        # MOQ (Minimum Order Quantity) - discrete common values, convert to native int
+            ["A", "B", "C"], p=[0.6, 0.3, 0.1]))
         moq = int(np.random.choice([1, 10, 50, 100, 500]))
-
-        # Unit of measure
         uom = str(np.random.choice(["EA", "KG", "M"], p=[0.7, 0.2, 0.1]))
 
         return {
@@ -324,20 +290,24 @@ class Generator:
         date = datetime.now() - timedelta(days=days_ago)
         return date.date().isoformat()
 
+    def generate_suppliers(self, count: int = 30000) -> List[Dict[str, Any]]:
+        """Generate specified number of supplier records."""
+        print(f"Generating {count} supplier records with seed={self.seed}...")
+
+        suppliers = []
+        for i in range(count):
+            if i % 5000 == 0:
+                print(f"  Generated {i}/{count} suppliers...")
+            supplier = self._generate_supplier_record()
+            suppliers.append(supplier)
+
+        print(f"Generated {len(suppliers)} suppliers")
+        return suppliers
+
     def generate_parts(self, count: int = 30000, supplier_ids: List[str] = None) -> List[Dict[str, Any]]:
-        """
-        Generate specified number of part records with supplier references.
-        
-        Args:
-            count: Number of parts to generate
-            supplier_ids: List of supplier IDs for referential integrity
-            
-        Returns:
-            List of part dictionaries matching canonical schema
-        """
+        """Generate specified number of part records with supplier references."""
         if not supplier_ids:
             raise ValueError("supplier_ids required for referential integrity")
-
         if len(supplier_ids) < 1:
             raise ValueError("At least one supplier_id required")
 
@@ -348,50 +318,14 @@ class Generator:
         for i in range(count):
             if i % 5000 == 0:
                 print(f"  Generated {i}/{count} parts...")
-
             part = self._generate_part_record(supplier_ids)
             parts.append(part)
 
         print(f"Generated {len(parts)} parts")
         return parts
 
-    def generate_suppliers(self, count: int = 30000) -> List[Dict[str, Any]]:
-        """
-        Generate specified number of supplier records.
-        
-        Args:
-            count: Number of suppliers to generate
-            
-        Returns:
-            List of supplier dictionaries matching canonical schema
-        """
-        print(f"Generating {count} supplier records with seed={self.seed}...")
-
-        suppliers = []
-        for i in range(count):
-            if i % 5000 == 0:
-                print(f"  Generated {i}/{count} suppliers...")
-
-            supplier = self._generate_supplier_record()
-            suppliers.append(supplier)
-
-        print(f"Generated {len(suppliers)} suppliers")
-        return suppliers
-
-    def inject_dirty_data(self, data: List[Dict[str, Any]],
-                          data_type: str = "suppliers",
-                          anomaly_rate: float = 0.06) -> List[Dict[str, Any]]:
-        """
-        Inject controlled anomalies for testing data quality gates.
-        
-        Args:
-            data: List of records to corrupt (suppliers or parts)
-            data_type: "suppliers" or "parts" - determines anomaly types
-            anomaly_rate: Fraction of records to corrupt (5-8% per doc)
-            
-        Returns:
-            List of records with injected anomalies
-        """
+    def inject_dirty_data(self, data: List[Dict[str, Any]], data_type: str = "suppliers", anomaly_rate: float = 0.06) -> List[Dict[str, Any]]:
+        """Inject controlled anomalies for testing data quality gates."""
         dirty_data = data.copy()
         num_anomalies = int(len(data) * anomaly_rate)
 
@@ -416,11 +350,8 @@ class Generator:
         for idx in dirty_indices:
             supplier = suppliers[idx]
             anomaly_type = random.choice([
-                "out_of_range_rate",
-                "missing_contact",
-                "bogus_country",
-                "duplicate_code",
-                "future_timestamp"
+                "out_of_range_rate", "missing_contact", "bogus_country",
+                "duplicate_code", "future_timestamp"
             ])
 
             if anomaly_type == "out_of_range_rate":
@@ -431,7 +362,6 @@ class Generator:
             elif anomaly_type == "bogus_country":
                 supplier["country"] = "XX"  # Invalid ISO code
             elif anomaly_type == "duplicate_code":
-                # Find another supplier's code to duplicate
                 if len(suppliers) > 1:
                     other_supplier = random.choice(
                         [s for s in suppliers if s != supplier])
@@ -445,12 +375,8 @@ class Generator:
         for idx in dirty_indices:
             part = parts[idx]
             anomaly_type = random.choice([
-                # Orphan qualified_supplier_ids (from doc)
-                "invalid_supplier_id",
-                "negative_cost",          # Negative unit costs (from doc)
-                "wrong_uom",             # Invalid unit of measure (from doc)
-                "duplicate_part_number",  # Duplicate part_number within tenant
-                "future_timestamp"       # Future source_timestamp
+                "invalid_supplier_id", "negative_cost", "wrong_uom",
+                "duplicate_part_number", "future_timestamp"
             ])
 
             if anomaly_type == "invalid_supplier_id":
@@ -462,7 +388,6 @@ class Generator:
             elif anomaly_type == "wrong_uom":
                 part["uom"] = "INVALID_UOM"  # Not in standard set
             elif anomaly_type == "duplicate_part_number":
-                # Find another part's number to duplicate
                 if len(parts) > 1:
                     other_part = random.choice([p for p in parts if p != part])
                     part["part_number"] = other_part["part_number"]
@@ -471,13 +396,7 @@ class Generator:
                 part["source_timestamp"] = future_date.isoformat()
 
     def export_to_parquet(self, data: List[Dict[str, Any]], filename: str):
-        """
-        Export generated data to Parquet file with proper schema and compression.
-        
-        Args:
-            data: List of records to export
-            filename: Output Parquet filename
-        """
+        """Export generated data to Parquet file with proper schema and compression."""
         if not data:
             print("No data to export")
             return
@@ -498,38 +417,26 @@ class Generator:
         # Convert arrays to strings (Parquet doesn't handle mixed arrays well)
         for col in df.columns:
             if df[col].dtype == 'object':
-                # Check if column contains lists
                 sample_val = df[col].dropna(
                 ).iloc[0] if not df[col].dropna().empty else None
                 if isinstance(sample_val, list):
                     df[col] = df[col].apply(
                         lambda x: ','.join(map(str, x)) if x else '')
 
-        # Export with compression and proper row group size (128MB as per doc)
-        df.to_parquet(
-            filename,
-            compression='snappy',
-            row_group_size=50000,  # Adjust based on record size
-            index=False
-        )
-
+        # Export with compression and proper row group size
+        df.to_parquet(filename, compression='snappy',
+                      row_group_size=50000, index=False)
         print(f"Exported to {filename}")
 
     def export_to_csv(self, data: List[Dict[str, Any]], filename: str):
-        """
-        Export generated data to CSV file (for debugging/inspection only).
-        
-        Args:
-            data: List of records to export
-            filename: Output CSV filename
-        """
+        """Export generated data to CSV file."""
         if not data:
             print("No data to export")
             return
 
         print(f"Exporting {len(data)} records to {filename}...")
 
-        # Flatten nested structures (geo_coords, certifications, etc.)
+        # Flatten nested structures
         flattened_data = []
         for record in data:
             flat_record = record.copy()
@@ -559,24 +466,109 @@ class Generator:
         print(f"Exported to {filename}")
 
 
-# Example usage
+class GeneratorWithUpload(Generator):
+    """Extends Generator to automatically upload files to MinIO after generation"""
+
+    def __init__(self, seed=42, tenant_id="tenant_acme", auto_upload=True,
+                 minio_endpoint="localhost:9000", minio_bucket="raw"):
+        super().__init__(seed, tenant_id)
+
+        self.auto_upload = auto_upload
+        self.minio_bucket = minio_bucket
+
+        if auto_upload:
+            try:
+                self.minio_client = Minio(
+                    minio_endpoint,
+                    access_key="minioadmin",
+                    secret_key="minioadmin",
+                    secure=False
+                )
+
+                # Create bucket if needed
+                if not self.minio_client.bucket_exists(minio_bucket):
+                    self.minio_client.make_bucket(minio_bucket)
+                    print(f"Created MinIO bucket: {minio_bucket}")
+
+            except Exception as e:
+                print(f"MinIO connection failed: {e}")
+                print("Continuing without upload capability...")
+                self.auto_upload = False
+
+    def export_to_csv(self, data, filename):
+        """Override to upload after local export"""
+        # Do the normal CSV export first
+        super().export_to_csv(data, filename)
+
+        # Then upload if auto_upload is enabled
+        if self.auto_upload:
+            self._upload_file(filename)
+
+    def _upload_file(self, local_filename):
+        """Upload single file to MinIO with organized structure"""
+        run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        date_folder = datetime.now().strftime("%Y-%m-%d")
+
+        # Use the generator's tenant_id (no parameter passing)
+        remote_path = f"{self.tenant_id}/{date_folder}/{run_id}/{os.path.basename(local_filename)}"
+
+        try:
+            self.minio_client.fput_object(
+                self.minio_bucket, remote_path, local_filename)
+            print(
+                f"Uploaded: {local_filename} -> s3://{self.minio_bucket}/{remote_path}")
+            return remote_path
+        except S3Error as e:
+            print(f"Upload failed for {local_filename}: {e}")
+            return None
+
+    def generate_and_export_full_dataset(self, num_suppliers=30000, num_parts=30000,
+                                         include_dirty_data=True, anomaly_rate=0.06):
+        """Complete workflow: generate -> inject dirty data -> export -> upload"""
+        print(f"Starting full dataset generation for {self.tenant_id}...")
+
+        # Generate data
+        suppliers = self.generate_suppliers(num_suppliers)
+        supplier_ids = [s["supplier_id"] for s in suppliers]
+        parts = self.generate_parts(num_parts, supplier_ids)
+
+        # Inject dirty data if requested
+        if include_dirty_data:
+            suppliers = self.inject_dirty_data(
+                suppliers, "suppliers", anomaly_rate)
+            parts = self.inject_dirty_data(parts, "parts", anomaly_rate)
+
+        # Export (will auto-upload if enabled)
+        self.export_to_csv(suppliers, "suppliers.csv")
+        self.export_to_csv(parts, "parts.csv")
+
+        # Also create parquet for local analysis
+        self.export_to_parquet(suppliers, "suppliers.parquet")
+        self.export_to_parquet(parts, "parts.parquet")
+
+        print(f"Dataset generation completed for {self.tenant_id}")
+        return {
+            "suppliers_count": len(suppliers),
+            "parts_count": len(parts),
+            "dirty_data_rate": anomaly_rate if include_dirty_data else 0,
+            "tenant_id": self.tenant_id
+        }
+
+
 if __name__ == "__main__":
-    generator = Generator(seed=42, tenant_id="tenant_acme")
+    # Create generator with auto-upload enabled
+    generator = GeneratorWithUpload(
+        seed=42,
+        tenant_id="tenant_acme",
+        auto_upload=True  # Set to False to disable MinIO upload
+    )
 
-    # Generate suppliers first
-    suppliers = generator.generate_suppliers(
-        count=1000)  # Start small for testing
-    supplier_ids = [s["supplier_id"] for s in suppliers]
+    # Generate everything - files automatically uploaded
+    result = generator.generate_and_export_full_dataset(
+        num_suppliers=1000,
+        num_parts=1000,
+        include_dirty_data=True
+    )
 
-    # Generate parts with supplier references
-    parts = generator.generate_parts(count=1000, supplier_ids=supplier_ids)
-
-    # Inject dirty data into both
-    dirty_suppliers = generator.inject_dirty_data(
-        suppliers, data_type="suppliers", anomaly_rate=0.06)
-    dirty_parts = generator.inject_dirty_data(
-        parts, data_type="parts", anomaly_rate=0.06)
-
-    # Export both datasets
-    generator.export_to_parquet(dirty_suppliers, "suppliers_test.parquet")
-    generator.export_to_parquet(dirty_parts, "parts_test.parquet")
+    print(
+        f"Complete! Generated {result['suppliers_count']} suppliers, {result['parts_count']} parts")
