@@ -4,3 +4,4 @@ faker
 ulid-py
 pyarrow
 pytest
+minio
