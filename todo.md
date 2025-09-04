@@ -13,3 +13,4 @@
 
 1. setup PUB/SUB FOR TOPIC 1 -> AIRBYTE
 2. setup airbyte -> raw listeners
+3. add another service for kafka to docker compose
