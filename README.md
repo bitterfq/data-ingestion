@@ -13,11 +13,11 @@ Enterprise-ready data pipeline for ingesting 30k suppliers + 30k parts with scal
 
 ```mermaid
 flowchart TD
-    A[Airbyte - Ingestion] --> B[Apache Iceberg - Storage]
-    B --> C[Apache Spark - Processing]
-    C --> D[Great Expectations - Quality]
-    D --> E[Apache Airflow - Orchestration]
-    E --> F[Prometheus & Grafana - Monitoring]
+    A["Airbyte<br/>Ingestion"] --> B["Apache Iceberg<br/>Storage"]
+    B --> C["Apache Spark<br/>Processing"]
+    C --> D["Great Expectations<br/>Quality"]
+    D --> E["Apache Airflow<br/>Orchestration"]
+    E --> F["Prometheus & Grafana<br/>Monitoring"]
 
     %% Feedback loops
     F -.-> A
