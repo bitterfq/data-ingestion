@@ -135,8 +135,7 @@ class Generator:
         
         # Lead times with realistic ranges
         lead_time_avg = int(np.clip(np.random.normal(21, 6), 3, 90))
-        lead_time_p95 = int(np.clip(np.random.normal(35, 10), 7, 180))
-        
+        lead_time_p95 = int(np.clip(np.random.normal(35, 10), 7, 180)) 
         # Certifications (weighted sampling, can have multiple)
         num_certs = np.random.choice([1, 2, 3], p=[0.6, 0.3, 0.1])
         certifications = list(np.random.choice(
@@ -387,8 +386,9 @@ class Generator:
 if __name__ == "__main__":
     generator = Generator(seed=42, tenant_id="tenant_acme")
     # Generate clean suppliers
-    suppliers = generator.generate_suppliers(count=1000)  # Start small for testing
+    suppliers = generator.generate_suppliers(count=100000)  # Start small for testing
     # Inject dirty data
     dirty_suppliers = generator.inject_dirty_data(suppliers, anomaly_rate=0.06)
     # Export to Parquet (primary format for pipeline)
+    generator.export_to_csv(dirty_suppliers, "suppliers_test.parquet")
     generator.export_to_parquet(dirty_suppliers, "suppliers_test.parquet")
