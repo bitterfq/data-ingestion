@@ -1,3 +1,19 @@
+"""
+Kafka-to-Airbyte Bridge Service
+
+Listens to Kafka for MinIO file event notifications, processes new CSV files
+uploaded to the 'raw' MinIO bucket, converts them to Parquet format, and uploads
+the results to the 'processed' MinIO bucket. Designed to automate ingestion and
+format conversion for downstream data pipelines (e.g., Airbyte).
+
+Key Features:
+- Consumes file event messages from Kafka.
+- Parses MinIO event structure to extract file metadata.
+- Downloads CSV files from MinIO, converts to Parquet using pandas.
+- Uploads Parquet files to a separate MinIO bucket.
+- Logs all major actions and errors for observability.
+"""
+
 import json
 import logging
 import os
@@ -13,7 +29,26 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class KafkaAirbyteBridge:
+    """
+    Bridge service that connects Kafka file event notifications to Airbyte ingestion.
+
+    Responsibilities:
+    - Consumes file event messages from a Kafka topic.
+    - Parses MinIO event payloads to extract file and tenant information.
+    - Downloads CSV files from MinIO, converts them to Parquet, and uploads to a processed bucket.
+    - Handles errors gracefully and logs processing steps.
+    """
+
     def __init__(self):
+        """
+        Initialize KafkaAirbyteBridge.
+
+        - Reads configuration from environment variables.
+        - Sets up Kafka consumer for file event topic.
+        - Initializes MinIO client for file operations.
+        - Logs startup information.
+        """
+
         self.kafka_bootstrap_servers = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'kafka:9092')
         self.kafka_topic = os.getenv('KAFKA_TOPIC', 'file-events')
         self.airbyte_api_url = os.getenv('AIRBYTE_API_URL', 'http://airbyte:8001/api/v1')
@@ -34,7 +69,16 @@ class KafkaAirbyteBridge:
         logger.info(f"Bridge service started - consuming from {self.kafka_topic}")
     
     def parse_minio_event(self, event):
-        """Extract file info from MinIO event"""
+        """
+        Parse a MinIO event notification from Kafka.
+
+        Args:
+            event (dict): The event payload from Kafka.
+
+        Returns:
+            dict or None: Parsed file info including bucket, tenant_id, run_id, entity_type, and s3_path,
+                          or None if parsing fails or event is not relevant.
+        """
         try:
             records = event.get('Records', [])
             for record in records:
@@ -60,7 +104,20 @@ class KafkaAirbyteBridge:
             return None
     
     def process_file(self, file_info):
-        """Download CSV from raw bucket, convert to Parquet, upload to processed bucket"""
+        """
+        Process a single file event.
+
+        - Downloads the CSV file from the raw MinIO bucket.
+        - Converts the CSV to a pandas DataFrame.
+        - Writes the DataFrame to Parquet format in memory.
+        - Uploads the Parquet file to the processed MinIO bucket.
+
+        Args:
+            file_info (dict): Metadata about the file to process.
+
+        Returns:
+            bool: True if processing succeeds, False otherwise.
+        """
         try:
             source_bucket = file_info['bucket']
             source_key = file_info['s3_path'].replace(f's3://{source_bucket}/', '')
@@ -111,7 +168,13 @@ class KafkaAirbyteBridge:
             return False
     
     def run(self):
-        """Main loop"""
+        """
+        Main event loop.
+
+        - Waits for Kafka messages.
+        - For each message, parses and processes the file event.
+        - Handles graceful shutdown on KeyboardInterrupt.
+        """
         logger.info("Waiting for Kafka events...")
         
         try:
