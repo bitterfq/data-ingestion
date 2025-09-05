@@ -565,8 +565,8 @@ if __name__ == "__main__":
 
     # Generate everything - files automatically uploaded
     result = generator.generate_and_export_full_dataset(
-        num_suppliers=1000,
-        num_parts=1000,
+        num_suppliers=10000,
+        num_parts=10000,
         include_dirty_data=True
     )
 
