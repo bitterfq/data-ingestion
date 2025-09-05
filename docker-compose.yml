@@ -1,19 +1,14 @@
-version: '3.8'
-
 services:
-  # Zookeeper (required by Kafka)
   zookeeper:
     container_name: zookeeper
     image: confluentinc/cp-zookeeper:7.4.0
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
     ports:
       - "2181:2181"
     networks:
       - data_pipeline
 
-  # Kafka broker
   kafka:
     container_name: kafka
     image: confluentinc/cp-kafka:7.4.0
@@ -32,20 +27,15 @@ services:
     networks:
       - data_pipeline
 
-  # Your existing MinIO service with Kafka integration
   minio:
     container_name: minio
     image: quay.io/minio/minio:latest
     ports:
-      - "9000:9000" # MinIO API port
-      - "9001:9001" # MinIO Console port
+      - "9000:9000"
+      - "9001:9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
-      # Kafka notification settings
-      MINIO_NOTIFY_KAFKA_ENABLE: "on"
-      MINIO_NOTIFY_KAFKA_BROKERS: "kafka:9092"
-      MINIO_NOTIFY_KAFKA_TOPIC: "file-events"
     volumes:
       - ~/minio/data:/data
     command: server /data --console-address ":9001"
@@ -54,41 +44,56 @@ services:
     networks:
       - data_pipeline
 
-  # Automated MinIO setup container
-  minio-setup:
-    container_name: minio-setup
-    image: minio/mc:latest
-    depends_on:
-      - minio
+  # Bridge service using Python image directly
+  kafka-airbyte-bridge:
+    container_name: kafka-airbyte-bridge
+    image: python:3.11-slim
+    volumes:
+      - ./bridge_service.py:/app/bridge_service.py
+    working_dir: /app
+    command: bash -c "pip install kafka-python==2.0.2 requests==2.31.0 minio==7.2.16 pandas==2.1.4 pyarrow==14.0.1 numpy==1.26.0 && python bridge_service.py"
     environment:
-      - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=minioadmin
-      - MINIO_SECRET_KEY=minioadmin
-    entrypoint: >
-      /bin/sh -c "
-      echo 'Waiting for MinIO to be ready...';
-      sleep 10;
-      
-      echo 'Setting up MinIO alias...';
-      mc alias set minio http://minio:9000 minioadmin minioadmin;
-      
-      echo 'Creating buckets...';
-      mc mb minio/raw --ignore-existing;
-      mc mb minio/processed --ignore-existing;
-      
-      echo 'Setting up bucket notifications for Kafka...';
-      mc event add minio/raw arn:minio:sqs::kafka:file-events --event put;
-      
-      echo 'Verifying bucket notifications...';
-      mc event list minio/raw;
-      
-      echo 'MinIO setup completed successfully!';
-      echo 'Upload a file to test: mc cp /etc/hosts minio/raw/test-file.txt';
-      "
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: file-events
+    depends_on:
+      - kafka
+      - minio
+    networks:
+      - data_pipeline
+    restart: unless-stopped
+
+  airbyte-db:
+    container_name: airbyte-db
+    image: postgres:13-alpine
+    environment:
+      POSTGRES_USER: docker
+      POSTGRES_PASSWORD: docker
+      POSTGRES_DB: airbyte
+    volumes:
+      - airbyte_db_data:/var/lib/postgresql/data
     networks:
       - data_pipeline
 
-  # Optional: Kafka UI for monitoring
+  airbyte:
+    container_name: airbyte
+    image: airbyte/server:0.50.33
+    ports:
+      - "8001:8001"
+      - "8000:8000"
+    environment:
+      DATABASE_USER: docker
+      DATABASE_PASSWORD: docker
+      DATABASE_URL: jdbc:postgresql://airbyte-db:5432/airbyte
+      WORKSPACE_ROOT: /tmp/workspace
+      CONFIG_ROOT: /data
+    volumes:
+      - airbyte_data:/data
+      - airbyte_workspace:/tmp/workspace
+    depends_on:
+      - airbyte-db
+    networks:
+      - data_pipeline
+
   kafka-ui:
     container_name: kafka-ui
     image: provectuslabs/kafka-ui:latest
@@ -97,7 +102,6 @@ services:
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
-      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
     depends_on:
       - kafka
     networks:
@@ -106,3 +110,8 @@ services:
 networks:
   data_pipeline:
     driver: bridge
+
+volumes:
+  airbyte_data:
+  airbyte_workspace:
+  airbyte_db_data:

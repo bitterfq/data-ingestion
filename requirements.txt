@@ -5,3 +5,7 @@ ulid-py
 pyarrow
 pytest
 minio
+
+# Bridge service dependencies  
+kafka-python
+requests
