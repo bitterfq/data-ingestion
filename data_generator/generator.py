@@ -495,14 +495,15 @@ class GeneratorWithUpload(Generator):
                 print("Continuing without upload capability...")
                 self.auto_upload = False
 
-    def export_to_csv(self, data, filename):
-        """Override to upload after local export"""
-        # Do the normal CSV export first
-        super().export_to_csv(data, filename)
 
-        # Then upload if auto_upload is enabled
+    def export_to_csv(self, data, filename):
+        """Override to upload after local export, always write to data/ subdir"""
+        data_dir = os.path.join(os.path.dirname(__file__), "data")
+        os.makedirs(data_dir, exist_ok=True)
+        out_path = os.path.join(data_dir, os.path.basename(filename))
+        super().export_to_csv(data, out_path)
         if self.auto_upload:
-            self._upload_file(filename)
+            self._upload_file(out_path)
 
     def _upload_file(self, local_filename):
         """Upload single file to MinIO with organized structure"""
@@ -542,9 +543,12 @@ class GeneratorWithUpload(Generator):
         self.export_to_csv(suppliers, "suppliers.csv")
         self.export_to_csv(parts, "parts.csv")
 
-        # Also create parquet for local analysis
-        self.export_to_parquet(suppliers, "suppliers.parquet")
-        self.export_to_parquet(parts, "parts.parquet")
+        # Also create parquet for local analysis (always in data/)
+        data_dir = os.path.join(os.path.dirname(__file__), "data")
+        os.makedirs(data_dir, exist_ok=True)
+
+        self.export_to_parquet(suppliers, os.path.join(data_dir, "suppliers.parquet"))
+        self.export_to_parquet(parts, os.path.join(data_dir, "parts.parquet"))
 
         print(f"Dataset generation completed for {self.tenant_id}")
         return {
