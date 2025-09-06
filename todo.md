@@ -1,4 +1,3 @@
-
 # Sep 03
 
 1. Implement testing for parts generator [DONE]
@@ -10,7 +9,7 @@
 # Sep 04
 
 1. setup PUB/SUB FOR TOPIC 1 -> AIRBYTE [DONE]
-2. setup airbyte -> raw listeners [DONE]
+2. setup airbyte -> raw listeners [Check Sep 05]
 3. add another service for kafka to docker compose [DONE]
 4. make sure data is being added to the data_generator/data file [DONE]
 
@@ -25,3 +24,5 @@
 6. comment on code bride_service.py [DONE]
 7. organize code better -> figure out organization
 8. Change landing zone bucket to be called customer-data for better representation [DONE]
+9. Implement Airbyte movement of data from customer-data -> raw
+   1.  Right now its using pandas, which is not ideal at all.
