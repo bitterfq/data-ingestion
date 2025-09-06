@@ -23,8 +23,8 @@ docker exec -it minio mc alias set local http://localhost:9000 minioadmin minioa
 
 # Step 5: Create buckets
 echo "Creating MinIO buckets..."
+docker exec -it minio mc mb local/customer-data --ignore-existing
 docker exec -it minio mc mb local/raw --ignore-existing
-docker exec -it minio mc mb local/processed --ignore-existing
 
 # Step 6: Configure Kafka notification target
 echo "Configuring Kafka notifications..."
@@ -41,7 +41,7 @@ sleep 5
 
 # Step 9: Set up bucket event notification
 echo "Setting up bucket notifications..."
-docker exec -it minio mc event add local/raw arn:minio:sqs::kafka:kafka --event put
+docker exec -it minio mc event add local/customer-data arn:minio:sqs::kafka:kafka --event put
 
 # Step 10: Verify setup
 echo "Verifying setup..."
@@ -55,7 +55,7 @@ echo "✓ Kafka notification config:"
 docker exec -it minio mc admin config get local notify_kafka:kafka
 
 echo "✓ Bucket events:"
-docker exec -it minio mc event list local/raw
+docker exec -it minio mc event list local/customer-data
 
 echo ""
 echo "🎉 Setup complete!"

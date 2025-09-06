@@ -470,7 +470,7 @@ class GeneratorWithUpload(Generator):
     """Extends Generator to automatically upload files to MinIO after generation"""
 
     def __init__(self, seed=42, tenant_id="tenant_acme", auto_upload=True,
-                 minio_endpoint="localhost:9000", minio_bucket="raw"):
+                 minio_endpoint="localhost:9000", minio_bucket="customer-data"):
         super().__init__(seed, tenant_id)
 
         self.auto_upload = auto_upload

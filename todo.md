@@ -19,7 +19,7 @@
 1. clean up infra, make sure it makes sense
 2. document airbyte bridge w/ kafka connector
 3. setup iceberg and silver storage
-4. think about raw -> silver being in iceberg or just silve in iceberg
+4. think about raw -> silver being in iceberg or just silver in iceberg
 5. evaluate if kafka is actually a smart choice w/ Airbyte
    1. Do a write up, really think about this one
 6. comment on code bride_service.py [DONE]

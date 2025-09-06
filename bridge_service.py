@@ -126,7 +126,7 @@ class KafkaAirbyteBridge:
             # raw/tenant_acme/2025-09-05/20250905_145143/suppliers.csv
             # -> processed/tenant_acme/2025-09-05/20250905_145143/suppliers.parquet
             dest_key = source_key.replace('.csv', '.parquet')
-            dest_bucket = 'processed'
+            dest_bucket = 'raw'
             
             logger.info(f"Processing {file_info['entity_type']} from {file_info['tenant_id']}")
             logger.info(f"  Source: s3://{source_bucket}/{source_key}")
