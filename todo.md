@@ -24,3 +24,4 @@
    1. Do a write up, really think about this one
 6. comment on code bride_service.py [DONE]
 7. organize code better -> figure out organization
+8. Change landing zone bucket to be called customer-data for better representation [DONE]
