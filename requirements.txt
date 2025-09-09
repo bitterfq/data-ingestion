@@ -1,0 +1,14 @@
+numpy
+pandas
+faker
+ulid-py
+pyarrow
+pytest
+minio
+boto3
+python-dotenv
+
+# Bridge service dependencies  
+kafka-python
+requests
+urllib3
