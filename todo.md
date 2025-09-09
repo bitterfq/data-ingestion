@@ -40,3 +40,5 @@
 3. push and pull codebase [DONE]
 4. setup iceberg + spark
 5. Rotate AWS creds [IN-PROGRESS]
+6. Clean branches [DONE]
+7. Ask melvin to update diagram
