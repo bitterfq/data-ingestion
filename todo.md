@@ -35,7 +35,8 @@
 
 # Sep 09
 
-1. clean up kafka infra 
-2. clean up code base
-3. push and pull codebase
+1. clean up kafka infra [DONE]
+2. clean up code base [DONE]
+3. push and pull codebase [DONE]
 4. setup iceberg + spark
+5. Rotate AWS creds [IN-PROGRESS]
