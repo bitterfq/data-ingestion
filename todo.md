@@ -41,4 +41,8 @@
 4. setup iceberg + spark
 5. Rotate AWS creds [IN-PROGRESS]
 6. Clean branches [DONE]
-7. Ask melvin to update diagram
+7. Ask melvin to update diagram [DONE]
+
+# Sep 10 
+
+1. Set up proper stream name pathing for the raw layer on airbyte
