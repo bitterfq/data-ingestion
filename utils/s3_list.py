@@ -12,6 +12,6 @@ s3 = boto3.client(
     region_name=os.getenv("AWS_REGION")
 )
 
-response = s3.list_objects_v2(Bucket='cdf-raw')
+response = s3.list_objects_v2(Bucket='cdf-upload')
 for obj in response.get('Contents', []):
     print(obj['Key'])
