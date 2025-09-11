@@ -49,10 +49,12 @@
 
 # Sep 11
 
-1. Document
+1. Document [DONE]
    1. learnings
    2. archeitecture
-2. Showcase work
+2. Showcase work [DONE]
 3. Setup automation instead of remembering pyspark command
-4. Figure out optimization
-   1. Airbyte optimizaiton instead of rewriting each time
+4. Figure out optimization [N/A]
+   1. Airbyte optimizaiton instead of rewriting each time [N/A]
+5. guage end to end performance 
+6. figure out why a spark-warehouse folder gets created using pyspark
