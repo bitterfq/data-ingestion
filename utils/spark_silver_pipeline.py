@@ -603,7 +603,7 @@ if __name__ == "__main__":
     pipeline = SupplyChainDataPipeline()
 
     try:
-        success = pipeline.run_pipeline("2025-09-10")
+        success = pipeline.run_pipeline("2025-09-11")
         exit_code = 0 if success else 1
     except Exception as e:
         print(f"Pipeline error: {e}")
