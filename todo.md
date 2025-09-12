@@ -58,3 +58,9 @@
    1. Airbyte optimizaiton instead of rewriting each time [N/A]
 5. guage end to end performance 
 6. figure out why a spark-warehouse folder gets created using pyspark
+7. connect db to airbyte to showcase different usecases[In-Prgress]
+
+# Sep 12
+
+1. Make destination pathing agnostic, figure out how to do that.
+2. change printout wordings on spark_silver_pipeline.py file

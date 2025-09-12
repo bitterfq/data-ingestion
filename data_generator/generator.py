@@ -13,6 +13,7 @@ Features:
 - Controlled dirty data injection (5-8% anomalies)
 - Referential integrity between suppliers and parts
 - Optional S3 upload of generated files
+- PostgreSQL database insertion
 """
 
 import os
@@ -26,6 +27,9 @@ from datetime import datetime, timedelta
 import csv
 import boto3
 from botocore.exceptions import ClientError
+import psycopg2
+import psycopg2.extras
+import json
 
 
 # --- FIX: canonical parts headers to keep schema stable ---
@@ -515,28 +519,34 @@ class Generator:
 
 class GeneratorWithUpload(Generator):
     """
-    Extends Generator to support automatic upload of generated files to S3.
+    Extends Generator to support automatic upload of generated files to S3 and PostgreSQL insertion.
 
     Methods:
         export_to_csv(data, filename): Export data to CSV and upload to S3.
+        insert_to_postgres(data, table_name): Insert data into PostgreSQL.
         _upload_file(local_filename): Upload a file to the configured S3 bucket.
         generate_and_export_full_dataset(...): Generate, export, and upload a full dataset.
+        close_connections(): Close database connections.
     """
 
     def __init__(self, seed=42, tenant_id="tenant_acme", auto_upload=True,
-                 s3_bucket="cdf-upload"):
+                 s3_bucket="cdf-upload", use_postgres=True):
         """
-        Initialize the generator with S3 upload capability.
+        Initialize the generator with S3 upload and PostgreSQL capability.
 
         Args:
             seed (int): Random seed for reproducibility.
             tenant_id (str): Tenant identifier.
             auto_upload (bool): Whether to upload files to S3 automatically.
             s3_bucket (str): S3 bucket name for uploads.
+            use_postgres (bool): Whether to insert data into PostgreSQL.
         """
         super().__init__(seed, tenant_id)
         self.auto_upload = auto_upload
         self.s3_bucket = s3_bucket
+        self.use_postgres = use_postgres
+
+        # S3 setup
         if auto_upload:
             try:
                 self.s3_client = boto3.client(
@@ -550,6 +560,134 @@ class GeneratorWithUpload(Generator):
             except Exception as e:
                 print(f"S3 setup failed: {e}")
                 self.auto_upload = False
+
+        # PostgreSQL setup
+        if use_postgres:
+            try:
+                self.pg_conn = psycopg2.connect(
+                    host="localhost",
+                    port=5432,
+                    database="supply_chain",
+                    user="pipeline_user",
+                    password="pipeline_pass"
+                )
+                print("Connected to PostgreSQL")
+            except Exception as e:
+                print(f"PostgreSQL setup failed: {e}")
+                self.use_postgres = False
+
+    def _prepare_record_for_postgres(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Prepare a record for PostgreSQL insertion by converting lists to JSON.
+        
+        Args:
+            record (dict): Record to prepare.
+            
+        Returns:
+            dict: Prepared record.
+        """
+        pg_record = record.copy()
+
+        # Convert lists to JSON strings for PostgreSQL JSONB columns
+        for key, value in pg_record.items():
+            if isinstance(value, list):
+                pg_record[key] = json.dumps(value) if value else None
+            elif isinstance(value, dict):
+                pg_record[key] = json.dumps(value) if value else None
+
+        return pg_record
+
+    def insert_to_postgres(self, data: List[Dict[str, Any]], table_name: str):
+        """
+        Insert data into PostgreSQL table using COPY command.
+        
+        Args:
+            data (list): List of records to insert.
+            table_name (str): Target table name ("suppliers" or "parts").
+        """
+        if not self.use_postgres or not data:
+            return
+
+        try:
+            import tempfile
+            import os
+
+            with self.pg_conn.cursor() as cursor:
+                # Clear existing data for this tenant
+                cursor.execute(
+                    f"DELETE FROM {table_name} WHERE tenant_id = %s", (self.tenant_id,))
+
+                # Create temporary CSV file with database-compatible format
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, encoding='utf-8') as temp_file:
+                    temp_path = temp_file.name
+
+                    # Create CSV data that matches database schema exactly
+                    self._export_postgres_csv(data, temp_path)
+
+                # Use COPY command to bulk insert
+                with open(temp_path, 'r', encoding='utf-8') as f:
+                    cursor.copy_expert(
+                        f"COPY {table_name} FROM STDIN WITH CSV HEADER", f)
+
+                # Clean up temp file
+                os.unlink(temp_path)
+
+                self.pg_conn.commit()
+                print(
+                    f"Inserted {len(data)} records into {table_name} using COPY")
+
+        except Exception as e:
+            print(f"PostgreSQL COPY insert failed: {e}")
+            self.pg_conn.rollback()
+
+    def _export_postgres_csv(self, data: List[Dict[str, Any]], filename: str):
+        """
+        Export data to CSV format that matches PostgreSQL schema exactly.
+        
+        Args:
+            data (list): List of records to export.
+            filename (str): Output CSV file path.
+        """
+        if not data:
+            return
+
+        import json
+        import decimal
+        prepared_data = []
+
+        for record in data:
+            pg_record = record.copy()
+
+            # Handle all problematic types
+            for key, value in pg_record.items():
+                if isinstance(value, list):
+                    pg_record[key] = json.dumps(value) if value else None
+                elif isinstance(value, dict):
+                    # Convert Decimal objects in nested dicts to float
+                    clean_dict = {}
+                    for k, v in value.items():
+                        if isinstance(v, decimal.Decimal):
+                            clean_dict[k] = float(v)
+                        else:
+                            clean_dict[k] = v
+                    pg_record[key] = json.dumps(
+                        clean_dict) if clean_dict else None
+                elif isinstance(value, decimal.Decimal):
+                    pg_record[key] = float(value)
+                elif key == 'uom' and value == 'INVALID_UOM':
+                    # Fix dirty data that's too long for column
+                    pg_record[key] = 'INVALID'
+
+            prepared_data.append(pg_record)
+
+        # Write CSV with exact database column names
+        import csv
+        with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+            if prepared_data:
+                fieldnames = prepared_data[0].keys()
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(prepared_data)
 
     def export_to_csv(self, data, filename):
         """
@@ -586,10 +724,18 @@ class GeneratorWithUpload(Generator):
             print(f"Upload failed: {e}")
             return None
 
+    def close_connections(self):
+        """
+        Close database connections.
+        """
+        if hasattr(self, 'pg_conn') and self.pg_conn:
+            self.pg_conn.close()
+            print("PostgreSQL connection closed")
+
     def generate_and_export_full_dataset(self, num_suppliers=30000, num_parts=30000,
                                          include_dirty_data=True, anomaly_rate=0.06):
         """
-        Generate suppliers and parts, inject dirty data, export to CSV/Parquet, and upload to S3.
+        Generate suppliers and parts, inject dirty data, export to CSV/Parquet, upload to S3, and insert to PostgreSQL.
 
         Args:
             num_suppliers (int): Number of suppliers to generate.
@@ -600,34 +746,51 @@ class GeneratorWithUpload(Generator):
         Returns:
             dict: Summary of generated data.
         """
+        # Generate data
         suppliers = self.generate_suppliers(num_suppliers)
         supplier_ids = [s["supplier_id"] for s in suppliers]
         parts = self.generate_parts(num_parts, supplier_ids)
+
         if include_dirty_data:
             suppliers = self.inject_dirty_data(
                 suppliers, "suppliers", anomaly_rate)
             parts = self.inject_dirty_data(parts, "parts", anomaly_rate)
+
+        # Export to CSV/Parquet (existing functionality)
         self.export_to_csv(suppliers, "suppliers.csv")
         self.export_to_csv(parts, "parts.csv")
+
         data_dir = os.path.join(os.path.dirname(__file__), "data")
         os.makedirs(data_dir, exist_ok=True)
         self.export_to_parquet(suppliers, os.path.join(
             data_dir, "suppliers.parquet"))
         self.export_to_parquet(parts, os.path.join(data_dir, "parts.parquet"))
+
+        # Insert to PostgreSQL (new functionality) - SUPPLIERS FIRST, THEN PARTS
+        if self.use_postgres:
+            self.insert_to_postgres(suppliers, "suppliers")
+            self.insert_to_postgres(parts, "parts")
+
         return {
             "suppliers_count": len(suppliers),
             "parts_count": len(parts),
             "dirty_data_rate": anomaly_rate if include_dirty_data else 0,
-            "tenant_id": self.tenant_id
+            "tenant_id": self.tenant_id,
+            "postgres_inserted": self.use_postgres
         }
 
 
 if __name__ == "__main__":
     # Example usage: generate and export a full dataset
     generator = GeneratorWithUpload(
-        seed=42, tenant_id="tenant_acme", auto_upload=True)
-    result = generator.generate_and_export_full_dataset(
-        num_suppliers=50000, num_parts=50000, include_dirty_data=True
-    )
-    print(
-        f"Complete! Generated {result['suppliers_count']} suppliers, {result['parts_count']} parts")
+        seed=42, tenant_id="tenant_dddd", auto_upload=True, use_postgres=False)
+
+    try:
+        result = generator.generate_and_export_full_dataset(
+            num_suppliers=1000, num_parts=10000, include_dirty_data=False
+        )
+        print(
+            f"Complete! Generated {result['suppliers_count']} suppliers, {result['parts_count']} parts")
+        print(f"PostgreSQL inserted: {result['postgres_inserted']}")
+    finally:
+        generator.close_connections()
