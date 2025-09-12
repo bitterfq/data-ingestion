@@ -17,3 +17,4 @@ urllib3
 pyspark==3.5.1
 # If using Iceberg with Spark, you may need to provide the Iceberg JAR separately,
 # but for pip installs, pyspark is sufficient for most local dev/test.
+psycopg2-binary
