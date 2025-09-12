@@ -56,7 +56,7 @@
 3. Setup automation instead of remembering pyspark command
 4. Figure out optimization [N/A]
    1. Airbyte optimizaiton instead of rewriting each time [N/A]
-5. guage end to end performance 
+5. guage end to end performance[DONE- MEETS SLA]
 6. figure out why a spark-warehouse folder gets created using pyspark
 7. connect db to airbyte to showcase different usecases[In-Prgress]
 
@@ -64,3 +64,5 @@
 
 1. Make destination pathing agnostic, figure out how to do that.
 2. change printout wordings on spark_silver_pipeline.py file
+3. Schema mismatch between silver and pdf
+4. writing pg data to silver after running s3 uploads causes schema mismatch
