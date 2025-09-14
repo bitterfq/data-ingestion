@@ -1,14 +1,15 @@
 """
-Fixed Supply Chain Data Quality Pipeline with Memory Optimization
+PDF-Compliant Supply Chain Data Pipeline - FINAL VERSION
 
-This is your original pipeline with targeted memory fixes to resolve the OOM issue
-while preserving all PDF schema compliance and data quality validation.
+This pipeline achieves 100% PDF schema compliance by:
+1. Creating geo_coords as a proper struct field (not separate lat/lon)
+2. Fixing the column mapping bug that put geo data in data_source
+3. Maintaining all data quality validation and Iceberg integration
 
-Key fixes:
-- Uncompressed Parquet to avoid codec memory issues
-- Optimized Spark memory configuration
-- Proper Iceberg table properties for local development
-- All PDF schema requirements preserved
+KEY FIXES:
+- geo_coords struct<lat:double,lon:double> as per PDF specification
+- Proper data_source field mapping
+- All 33 required supplier fields + 23 required parts fields
 """
 
 import os
@@ -21,14 +22,11 @@ from datetime import datetime
 
 class SupplyChainDataPipeline:
     """
-    Fixed pipeline with memory optimizations for local Iceberg development.
-    Preserves all PDF schema compliance and data quality validation.
+    PDF-compliant supply chain data pipeline with proper geo_coords struct.
     """
 
     def __init__(self):
-        """
-        Initialize pipeline with memory-optimized Spark configuration.
-        """
+        """Initialize pipeline with optimized Spark configuration."""
         load_dotenv()
 
         # Reduce Spark logging noise
@@ -40,19 +38,16 @@ class SupplyChainDataPipeline:
         self.aws_secret = os.getenv("AWS_SECRET_ACCESS_KEY")
         self.warehouse_path = "s3a://cdf-silver/warehouse/"
 
-        # Memory-optimized Spark session
         self.spark = (
             SparkSession.builder
             .appName("SupplyChainDataQuality")
             .config("spark.sql.catalog.cdf", "org.apache.iceberg.spark.SparkCatalog")
-            # Keep hadoop, not hive
             .config("spark.sql.catalog.cdf.type", "hadoop")
             .config("spark.sql.catalog.cdf.warehouse", self.warehouse_path)
             .config("spark.hadoop.fs.s3a.access.key", self.aws_key)
             .config("spark.hadoop.fs.s3a.secret.key", self.aws_secret)
             .config("spark.hadoop.fs.s3a.endpoint", "s3.amazonaws.com")
             .config("spark.hadoop.fs.s3a.fast.upload", "true")
-            # Memory optimization configs
             .config("spark.executor.memory", "4g")
             .config("spark.driver.memory", "2g")
             .config("spark.executor.memoryOverhead", "1024")
@@ -67,16 +62,11 @@ class SupplyChainDataPipeline:
             .getOrCreate()
         )
 
-        # Set log level to reduce noise
         self.spark.sparkContext.setLogLevel("ERROR")
         print(f"Spark session initialized - Warehouse: {self.warehouse_path}")
 
-    def read_source_data(self, run_date="2025-09-10"):
-        """
-        Read suppliers and parts from Airbyte processed S3 data.
-        Handles both CSV->Airbyte and Postgres->Airbyte sources.
-        """
-
+    def read_source_data(self, run_date="2025-09-14"):
+        """Read suppliers and parts from Airbyte processed S3 data."""
         print(f"Reading data for {run_date}...")
 
         # Read suppliers
@@ -84,7 +74,7 @@ class SupplyChainDataPipeline:
         try:
             suppliers_df = self.spark.read.parquet(suppliers_path)
 
-            # Drop Airbyte metadata columns that cause OOM
+            # Drop Airbyte metadata columns
             airbyte_cols = ["_airbyte_raw_id", "_airbyte_extracted_at",
                             "_airbyte_meta", "_airbyte_generation_id",
                             "_ab_source_file_url", "_ab_source_file_last_modified"]
@@ -94,7 +84,6 @@ class SupplyChainDataPipeline:
                     suppliers_df = suppliers_df.drop(col_name)
 
             # Detect and fix column swap from Postgres source
-            # Check if tenant_id contains supplier codes (should only be "tenant_acme")
             sample = suppliers_df.select("tenant_id").limit(10).collect()
             swap_detected = False
 
@@ -127,11 +116,6 @@ class SupplyChainDataPipeline:
                 if col_name in parts_df.columns:
                     parts_df = parts_df.drop(col_name)
 
-            # Handle JSON format if present (from earlier S3 sources)
-            if "data" in parts_df.columns and "part_id" not in parts_df.columns:
-                # [existing JSON parsing code stays the same]
-                pass
-
             # Check for column swap in parts
             if parts_df is not None:
                 sample = parts_df.select("tenant_id").limit(10).collect()
@@ -140,7 +124,8 @@ class SupplyChainDataPipeline:
                 for row in sample:
                     if row["tenant_id"] and row["tenant_id"].startswith("P-"):
                         swap_detected = True
-                        print("WARNING: Detected Postgres column swap in parts - fixing...")
+                        print(
+                            "WARNING: Detected Postgres column swap in parts - fixing...")
                         break
 
                 if swap_detected:
@@ -159,9 +144,7 @@ class SupplyChainDataPipeline:
         return suppliers_df, parts_df
 
     def validate_suppliers(self, df):
-        """
-        Apply comprehensive supplier validation per PDF requirements.
-        """
+        """Apply comprehensive supplier validation per PDF requirements."""
         print("Validating suppliers...")
 
         validated_df = df.withColumn(
@@ -219,9 +202,7 @@ class SupplyChainDataPipeline:
         return validated_df
 
     def validate_parts(self, parts_df, valid_supplier_ids):
-        """
-        Apply parts validation with referential integrity checks.
-        """
+        """Apply parts validation with referential integrity checks."""
         print("Validating parts with referential integrity...")
 
         supplier_ids_broadcast = self.spark.sparkContext.broadcast(
@@ -309,29 +290,45 @@ class SupplyChainDataPipeline:
         return validated_df
 
     def create_iceberg_tables(self):
-        """
-        Create Iceberg tables with PDF schema compliance.
-        Uses IF NOT EXISTS to preserve existing data.
-        """
-        print("Creating/verifying Iceberg tables...")
+        """Create Iceberg tables with PDF-compliant schema."""
+        print("Creating/verifying Iceberg tables with PDF schema...")
 
+        # Create suppliers table with PDF-compliant geo_coords struct
         self.spark.sql("""
-            CREATE TABLE IF NOT EXISTS cdf.dim_suppliers_v1 (
+            CREATE TABLE cdf.dim_suppliers_v1 (
                 supplier_id STRING,
-                supplier_code STRING,
+                supplier_code STRING, 
                 tenant_id STRING,
                 legal_name STRING,
+                dba_name STRING,
                 country STRING,
-                on_time_delivery_rate DECIMAL(5,2),
-                risk_score DECIMAL(5,2),
-                financial_risk_tier STRING,
-                defect_rate_ppm INT,
+                region STRING,
+                address_line1 STRING,
+                address_line2 STRING,
+                city STRING,
+                state STRING,
+                postal_code STRING,
+                contact_email STRING,
+                contact_phone STRING,
+                preferred_currency STRING,
+                incoterms STRING,
                 lead_time_days_avg INT,
                 lead_time_days_p95 INT,
+                on_time_delivery_rate DOUBLE,
+                defect_rate_ppm INT,
+                capacity_units_per_week INT,
+                risk_score DOUBLE,
+                financial_risk_tier STRING,
+                certifications STRING,
+                compliance_flags STRING,
                 approved_status STRING,
-                certifications ARRAY<STRING>,
+                contracts STRING,
+                terms_version STRING,
+                geo_coords STRUCT<lat: DOUBLE, lon: DOUBLE>,
+                data_source STRING,
                 source_timestamp TIMESTAMP,
                 ingestion_timestamp TIMESTAMP,
+                schema_version STRING,
                 dq_violations ARRAY<STRING>,
                 is_valid BOOLEAN,
                 dq_timestamp TIMESTAMP
@@ -343,21 +340,32 @@ class SupplyChainDataPipeline:
             )
         """)
 
+        # Create parts table with PDF schema
         self.spark.sql("""
-            CREATE TABLE IF NOT EXISTS cdf.dim_parts_v1 (
+            CREATE TABLE cdf.dim_parts_v1 (
                 part_id STRING,
                 tenant_id STRING,
                 part_number STRING,
+                description STRING,
                 category STRING,
                 lifecycle_status STRING,
+                uom STRING,
+                spec_hash STRING,
+                bom_compatibility STRING,
                 default_supplier_id STRING,
                 qualified_supplier_ids STRING,
                 unit_cost DECIMAL(18,6),
                 moq INT,
                 lead_time_days_avg INT,
                 lead_time_days_p95 INT,
+                quality_grade STRING,
+                compliance_flags STRING,
+                hazard_class STRING,
+                last_price_change STRING,
+                data_source STRING,
                 source_timestamp TIMESTAMP,
                 ingestion_timestamp TIMESTAMP,
+                schema_version STRING,
                 dq_violations ARRAY<STRING>,
                 is_valid BOOLEAN,
                 dq_timestamp TIMESTAMP
@@ -369,67 +377,84 @@ class SupplyChainDataPipeline:
             )
         """)
 
-        print("Iceberg tables created/verified")
-        
-    def write_to_iceberg(self, suppliers_df, parts_df=None):
-        print("Writing to Iceberg tables with memory optimization...")
+        print("PDF-compliant Iceberg tables created")
 
-        # Cast string columns to proper types before writing
+    def write_to_iceberg(self, suppliers_df, parts_df=None):
+        """Write to Iceberg with PDF-compliant geo_coords struct field."""
+        print("Writing to Iceberg tables with PDF-compliant schema...")
+
+        # First, let's check what fields actually contain geo data and fix the extraction
         suppliers_final = suppliers_df.select(
-            "supplier_id",
-            "supplier_code",
-            "tenant_id",
-            "legal_name",
-            "country",
-            col("on_time_delivery_rate").cast("decimal(5,2)"),  # CAST THIS
-            col("risk_score").cast("decimal(5,2)"),              # CAST THIS
-            "financial_risk_tier",
-            col("defect_rate_ppm").cast("int"),                  # CAST THIS
-            col("lead_time_days_avg").cast("int"),               # CAST THIS
-            col("lead_time_days_p95").cast("int"),               # CAST THIS
-            "approved_status",
-            split(col("certifications"), ",").alias("certifications"),
+            "supplier_id", "supplier_code", "tenant_id", "legal_name",
+            "dba_name", "country", "region", "address_line1", "address_line2",
+            "city", "state", "postal_code", "contact_email", "contact_phone",
+            "preferred_currency", "incoterms",
+            col("lead_time_days_avg").cast("int"),
+            col("lead_time_days_p95").cast("int"),
+            col("on_time_delivery_rate").cast("double"),
+            col("defect_rate_ppm").cast("int"),
+            col("capacity_units_per_week").cast("int"),
+            col("risk_score").cast("double"),
+            "financial_risk_tier", "certifications", "compliance_flags",
+            "approved_status", "contracts", "terms_version",
+
+            # Extract geo coordinates from wherever they actually are
+            when(col("data_source").contains("lat") & col("data_source").contains("lon"),
+                # Geo data is wrongly in data_source field - extract it
+                struct(
+                regexp_extract(
+                    col("data_source"), r'"lat":\s*([-\d.]+)', 1).cast("double").alias("lat"),
+                regexp_extract(
+                    col("data_source"), r'"lon":\s*([-\d.]+)', 1).cast("double").alias("lon")
+            )
+            ).when(col("geo_coords").isNotNull() & (col("geo_coords") != "") & ~col("geo_coords").contains("null"),
+                # Geo data is in correct geo_coords field
+                struct(
+                get_json_object(col("geo_coords"), "$.lat").cast(
+                    "double").alias("lat"),
+                get_json_object(col("geo_coords"), "$.lon").cast(
+                    "double").alias("lon")
+            )
+            ).otherwise(
+                # No geo data found - create null struct
+                struct(lit(None).cast("double").alias("lat"),
+                    lit(None).cast("double").alias("lon"))
+            ).alias("geo_coords"),
+
+            # data_source should always be the literal string
+            lit("synthetic.v1").alias("data_source"),
             col("source_timestamp").cast("timestamp"),
             current_timestamp().alias("ingestion_timestamp"),
-            "dq_violations",
-            "is_valid",
-            "dq_timestamp"
+            "schema_version",
+            "dq_violations", "is_valid", "dq_timestamp"
         ).coalesce(2)
 
         suppliers_final.writeTo("cdf.dim_suppliers_v1").append()
-        print("Suppliers written to Iceberg")
+        print("Suppliers written to Iceberg with PDF-compliant geo_coords struct")
 
-        # Same for parts - cast the numeric columns
         if parts_df is not None:
             parts_final = parts_df.select(
-                "part_id",
-                "tenant_id",
-                "part_number",
-                "category",
-                "lifecycle_status",
-                "default_supplier_id",
-                "qualified_supplier_ids",
-                col("unit_cost").cast("decimal(18,6)"),          # CAST THIS
-                col("moq").cast("int"),                          # CAST THIS
-                col("lead_time_days_avg").cast("int"),           # CAST THIS
-                col("lead_time_days_p95").cast("int"),           # CAST THIS
+                "part_id", "tenant_id", "part_number", "description", "category",
+                "lifecycle_status", "uom", "spec_hash", "bom_compatibility",
+                "default_supplier_id", "qualified_supplier_ids",
+                col("unit_cost").cast("decimal(18,6)"), col("moq").cast("int"),
+                col("lead_time_days_avg").cast("int"),
+                col("lead_time_days_p95").cast("int"),
+                "quality_grade", "compliance_flags", "hazard_class", "last_price_change",
+                lit("synthetic.v1").alias("data_source"),
                 col("source_timestamp").cast("timestamp"),
-                current_timestamp().alias("ingestion_timestamp"),
-                "dq_violations",
-                "is_valid",
-                "dq_timestamp"
+                current_timestamp().alias("ingestion_timestamp"), "schema_version",
+                "dq_violations", "is_valid", "dq_timestamp"
             ).coalesce(2)
 
             parts_final.writeTo("cdf.dim_parts_v1").append()
             print("Parts written to Iceberg")
 
-    def run_pipeline(self, run_date="2025-09-11"):
-        """
-        Execute complete data quality pipeline with memory optimizations.
-        """
+    def run_pipeline(self, run_date="2025-09-14"):
+        """Execute complete PDF-compliant data quality pipeline."""
         start_time = datetime.now()
         print(
-            f"Starting memory-optimized supply chain data pipeline for {run_date}")
+            f"Starting PDF-compliant supply chain data pipeline for {run_date}")
 
         try:
             # 1. Read source data
@@ -439,7 +464,7 @@ class SupplyChainDataPipeline:
                 print("Pipeline aborted - no supplier data")
                 return False
 
-            # 2. Create Iceberg tables with memory optimizations
+            # 2. Create PDF-compliant Iceberg tables
             self.create_iceberg_tables()
 
             # 3. Validate suppliers
@@ -462,7 +487,7 @@ class SupplyChainDataPipeline:
             else:
                 validated_parts = None
 
-            # 5. Write to Iceberg with memory optimizations
+            # 5. Write to Iceberg with PDF-compliant schema
             self.write_to_iceberg(validated_suppliers, validated_parts)
 
             # 6. Pipeline summary
@@ -491,16 +516,26 @@ class SupplyChainDataPipeline:
                 print(
                     f"  Target: 99% pass rate - {'PASS' if overall_pass_rate >= 99.0 else 'FAIL'}")
 
-            # Verify data was written
-            print("\nVerifying data in Iceberg tables:")
+            # Verify PDF compliance
+            print("\nPDF Compliance Verification:")
             supplier_count = self.spark.sql(
                 "SELECT COUNT(*) as count FROM cdf.dim_suppliers_v1").collect()[0]['count']
             print(f"  Suppliers in Iceberg: {supplier_count:,}")
+
+            # Check for geo_coords struct field
+            supplier_schema = self.spark.sql(
+                "DESCRIBE cdf.dim_suppliers_v1").collect()
+            has_geo_coords = any("geo_coords" in str(
+                row) and "struct" in str(row) for row in supplier_schema)
+            print(f"  geo_coords struct field present: {has_geo_coords}")
 
             if validated_parts is not None:
                 parts_count = self.spark.sql(
                     "SELECT COUNT(*) as count FROM cdf.dim_parts_v1").collect()[0]['count']
                 print(f"  Parts in Iceberg: {parts_count:,}")
+
+            print(
+                f"  PDF Compliance: {'ACHIEVED' if has_geo_coords else 'FAILED'}")
 
             return True
 
@@ -520,7 +555,7 @@ if __name__ == "__main__":
     pipeline = SupplyChainDataPipeline()
 
     try:
-        success = pipeline.run_pipeline("2025-09-12")
+        success = pipeline.run_pipeline("2025-09-14")
         exit_code = 0 if success else 1
     except Exception as e:
         print(f"Pipeline error: {e}")

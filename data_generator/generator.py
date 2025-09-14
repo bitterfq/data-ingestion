@@ -30,6 +30,8 @@ from botocore.exceptions import ClientError
 import psycopg2
 import psycopg2.extras
 import json
+import decimal
+import csv
 
 
 # --- FIX: canonical parts headers to keep schema stable ---
@@ -490,15 +492,18 @@ class Generator:
             data (list): List of records to export.
             filename (str): Output CSV file path.
         """
-        if not data:
-            return
         flattened_data = []
         for record in data:
             flat_record = record.copy()
             if 'geo_coords' in flat_record and flat_record['geo_coords']:
-                flat_record['geo_lat'] = flat_record['geo_coords']['lat']
-                flat_record['geo_lon'] = flat_record['geo_coords']['lon']
-                del flat_record['geo_coords']
+                # Convert Decimal objects to float before JSON serialization
+                geo_data = {}
+                for k, v in flat_record['geo_coords'].items():
+                    if isinstance(v, decimal.Decimal):
+                        geo_data[k] = float(v)
+                    else:
+                        geo_data[k] = v
+                flat_record['geo_coords'] = json.dumps(geo_data)
             for k, v in flat_record.items():
                 if isinstance(v, list):
                     flat_record[k] = ','.join(map(str, v)) if v else ''
@@ -624,10 +629,16 @@ class GeneratorWithUpload(Generator):
                     # Create CSV data that matches database schema exactly
                     self._export_postgres_csv(data, temp_path)
 
-                # Use COPY command to bulk insert
+                # Define explicit column order to match PostgreSQL schema
+                if table_name == "suppliers":
+                    columns = "supplier_id,tenant_id,supplier_code,legal_name,dba_name,country,region,address_line1,address_line2,city,state,postal_code,contact_email,contact_phone,preferred_currency,incoterms,lead_time_days_avg,lead_time_days_p95,on_time_delivery_rate,defect_rate_ppm,capacity_units_per_week,risk_score,financial_risk_tier,certifications,compliance_flags,approved_status,contracts,terms_version,geo_coords,data_source,source_timestamp,ingestion_timestamp,schema_version"
+                elif table_name == "parts":
+                    columns = "part_id,tenant_id,part_number,description,category,lifecycle_status,uom,spec_hash,bom_compatibility,default_supplier_id,qualified_supplier_ids,unit_cost,moq,lead_time_days_avg,lead_time_days_p95,quality_grade,compliance_flags,hazard_class,last_price_change,data_source,source_timestamp,ingestion_timestamp,schema_version"
+
+                # Use COPY command to bulk insert with explicit column mapping
                 with open(temp_path, 'r', encoding='utf-8') as f:
                     cursor.copy_expert(
-                        f"COPY {table_name} FROM STDIN WITH CSV HEADER", f)
+                        f"COPY {table_name}({columns}) FROM STDIN WITH CSV HEADER", f)
 
                 # Clean up temp file
                 os.unlink(temp_path)
@@ -651,10 +662,29 @@ class GeneratorWithUpload(Generator):
         if not data:
             return
 
-        import json
-        import decimal
-        prepared_data = []
+        # Define the exact column order for each table
+        if 'supplier_id' in data[0]:  # suppliers table
+            column_order = [
+                "supplier_id", "tenant_id", "supplier_code", "legal_name", "dba_name",
+                "country", "region", "address_line1", "address_line2", "city", "state",
+                "postal_code", "contact_email", "contact_phone", "preferred_currency",
+                "incoterms", "lead_time_days_avg", "lead_time_days_p95", "on_time_delivery_rate",
+                "defect_rate_ppm", "capacity_units_per_week", "risk_score", "financial_risk_tier",
+                "certifications", "compliance_flags", "approved_status", "contracts",
+                "terms_version", "geo_coords", "data_source", "source_timestamp",
+                "ingestion_timestamp", "schema_version"
+            ]
+        else:  # parts table
+            column_order = [
+                "part_id", "tenant_id", "part_number", "description", "category",
+                "lifecycle_status", "uom", "spec_hash", "bom_compatibility",
+                "default_supplier_id", "qualified_supplier_ids", "unit_cost", "moq",
+                "lead_time_days_avg", "lead_time_days_p95", "quality_grade",
+                "compliance_flags", "hazard_class", "last_price_change", "data_source",
+                "source_timestamp", "ingestion_timestamp", "schema_version"
+            ]
 
+        prepared_data = []
         for record in data:
             pg_record = record.copy()
 
@@ -670,8 +700,7 @@ class GeneratorWithUpload(Generator):
                             clean_dict[k] = float(v)
                         else:
                             clean_dict[k] = v
-                    pg_record[key] = json.dumps(
-                        clean_dict) if clean_dict else None
+                    pg_record[key] = json.dumps(clean_dict) if clean_dict else None
                 elif isinstance(value, decimal.Decimal):
                     pg_record[key] = float(value)
                 elif key == 'uom' and value == 'INVALID_UOM':
@@ -680,15 +709,11 @@ class GeneratorWithUpload(Generator):
 
             prepared_data.append(pg_record)
 
-        # Write CSV with exact database column names
-        import csv
+        # Write CSV with exact column order
         with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
-            if prepared_data:
-                fieldnames = prepared_data[0].keys()
-                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerows(prepared_data)
-
+            writer = csv.DictWriter(csvfile, fieldnames=column_order)
+            writer.writeheader()
+            writer.writerows(prepared_data)
     def export_to_csv(self, data, filename):
         """
         Export data to CSV and upload to S3 if enabled.
@@ -783,11 +808,11 @@ class GeneratorWithUpload(Generator):
 if __name__ == "__main__":
     # Example usage: generate and export a full dataset
     generator = GeneratorWithUpload(
-        seed=42, tenant_id="tenant_dddd", auto_upload=True, use_postgres=False)
+        seed=42, tenant_id="tenant_dddd", auto_upload=False, use_postgres=True)
 
     try:
         result = generator.generate_and_export_full_dataset(
-            num_suppliers=1000, num_parts=10000, include_dirty_data=False
+            num_suppliers=10000, num_parts=10000, include_dirty_data=False
         )
         print(
             f"Complete! Generated {result['suppliers_count']} suppliers, {result['parts_count']} parts")
