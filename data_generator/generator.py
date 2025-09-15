@@ -812,7 +812,7 @@ if __name__ == "__main__":
 
     try:
         result = generator.generate_and_export_full_dataset(
-            num_suppliers=10000, num_parts=10000, include_dirty_data=False
+            num_suppliers=30000, num_parts=30000, include_dirty_data=False
         )
         print(
             f"Complete! Generated {result['suppliers_count']} suppliers, {result['parts_count']} parts")

@@ -69,7 +69,7 @@
 1. change batch md to be upto date [DONE]
 2. Make destination pathing agnostic, figure out how to do that.
 
-3. Setup automation instead of remembering pyspark command
+3. Setup automation instead of remembering pyspark command [DONE]
 4. When writing -> airbyte timestamp is UTC and so its a day ahead of S3 [IMPORTANT][USE UTC 0 INSTEAD][STANDARIZATION TIME FORMAT]
 
 5. figure out why a spark-warehouse folder gets created using pyspark
