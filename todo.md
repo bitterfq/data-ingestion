@@ -66,7 +66,8 @@
 2. change printout wordings on spark_silver_pipeline.py file
 3. Schema mismatch between silver and pdf [DONE]
 4. writing pg data to silver after running s3 uploads causes schema mismatch [DONE]
-5. When writing -> airbyte timestamp is UTC and so its a day ahead of S3
+5. When writing -> airbyte timestamp is UTC and so its a day ahead of S3 [IMPORTANT][USE UTC 0 INSTEAD][STANDARIZATION TIME FORMAT]
 6. S3 timestamp difference between parts and suppliers in the folders i.e one might be microseconds ahead/different
    1. s3://cdf-upload/tenant_dddd/2025-09-13/20250913_190448/suppliers.csv
       s3://cdf-upload/tenant_dddd/2025-09-13/20250913_190449/parts.csv
+7. change batch md to be upto date

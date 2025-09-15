@@ -1,3 +1,5 @@
+[DEPCREATED -> NOT USING MINIO ANYMORE; MOVED TO S3]
+
 # MinIO Kafka Event Notifications Setup
 
 Documentation for configuring MinIO S3 event notifications to publish to Kafka topics.

@@ -808,7 +808,7 @@ class GeneratorWithUpload(Generator):
 if __name__ == "__main__":
     # Example usage: generate and export a full dataset
     generator = GeneratorWithUpload(
-        seed=42, tenant_id="tenant_dddd", auto_upload=False, use_postgres=True)
+        seed=42, tenant_id="tenant_acme", auto_upload=True, use_postgres=False)
 
     try:
         result = generator.generate_and_export_full_dataset(
