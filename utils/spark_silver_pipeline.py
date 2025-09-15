@@ -377,11 +377,11 @@ class SupplyChainDataPipeline:
             )
         """)
 
-        print("PDF-compliant Iceberg tables created")
+        print("Iceberg tables created")
 
     def write_to_iceberg(self, suppliers_df, parts_df=None):
         """Write to Iceberg with PDF-compliant geo_coords struct field."""
-        print("Writing to Iceberg tables with PDF-compliant schema...")
+        print("Writing to Iceberg tables...")
 
         # First, let's check what fields actually contain geo data and fix the extraction
         suppliers_final = suppliers_df.select(
@@ -430,7 +430,7 @@ class SupplyChainDataPipeline:
         ).coalesce(2)
 
         suppliers_final.writeTo("cdf.dim_suppliers_v1").append()
-        print("Suppliers written to Iceberg with PDF-compliant geo_coords struct")
+        print("Suppliers written to Iceberg")
 
         if parts_df is not None:
             parts_final = parts_df.select(
@@ -454,7 +454,7 @@ class SupplyChainDataPipeline:
         """Execute complete PDF-compliant data quality pipeline."""
         start_time = datetime.now()
         print(
-            f"Starting PDF-compliant supply chain data pipeline for {run_date}")
+            f"Starting supply chain data pipeline for {run_date}")
 
         try:
             # 1. Read source data
@@ -555,7 +555,7 @@ if __name__ == "__main__":
     pipeline = SupplyChainDataPipeline()
 
     try:
-        success = pipeline.run_pipeline("2025-09-14")
+        success = pipeline.run_pipeline("2025-09-15")
         exit_code = 0 if success else 1
     except Exception as e:
         print(f"Pipeline error: {e}")
