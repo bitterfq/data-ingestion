@@ -53,21 +53,26 @@
    1. learnings
    2. archeitecture
 2. Showcase work [DONE]
-3. Setup automation instead of remembering pyspark command
-4. Figure out optimization [N/A]
+3. Figure out optimization [N/A]
    1. Airbyte optimizaiton instead of rewriting each time [N/A]
-5. guage end to end performance[DONE]
-6. figure out why a spark-warehouse folder gets created using pyspark
-7. connect db to airbyte to showcase different usecases[In-Prgress]
+4. guage end to end performance[DONE]
+5. connect db to airbyte to showcase different usecases[Done]
 
 # Sep 12
 
-1. Make destination pathing agnostic, figure out how to do that.
-2. change printout wordings on spark_silver_pipeline.py file
-3. Schema mismatch between silver and pdf [DONE]
-4. writing pg data to silver after running s3 uploads causes schema mismatch [DONE]
-5. When writing -> airbyte timestamp is UTC and so its a day ahead of S3 [IMPORTANT][USE UTC 0 INSTEAD][STANDARIZATION TIME FORMAT]
+1. change printout wordings on spark_silver_pipeline.py file [DONE]
+2. Schema mismatch between silver and pdf [DONE]
+3. writing pg data to silver after running s3 uploads causes schema mismatch [DONE]
+
+# Sep 15
+
+1. change batch md to be upto date [DONE]
+2. Make destination pathing agnostic, figure out how to do that.
+
+3. Setup automation instead of remembering pyspark command
+4. When writing -> airbyte timestamp is UTC and so its a day ahead of S3 [IMPORTANT][USE UTC 0 INSTEAD][STANDARIZATION TIME FORMAT]
+
+5. figure out why a spark-warehouse folder gets created using pyspark
 6. S3 timestamp difference between parts and suppliers in the folders i.e one might be microseconds ahead/different
    1. s3://cdf-upload/tenant_dddd/2025-09-13/20250913_190448/suppliers.csv
       s3://cdf-upload/tenant_dddd/2025-09-13/20250913_190449/parts.csv
-7. change batch md to be upto date
