@@ -44,6 +44,8 @@ class SupplyChainDataPipeline:
             .config("spark.sql.catalog.cdf", "org.apache.iceberg.spark.SparkCatalog")
             .config("spark.sql.catalog.cdf.type", "hadoop")
             .config("spark.sql.catalog.cdf.warehouse", self.warehouse_path)
+            .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
+            .config("spark.sql.defaultCatalog", "cdf")
             .config("spark.hadoop.fs.s3a.access.key", self.aws_key)
             .config("spark.hadoop.fs.s3a.secret.key", self.aws_secret)
             .config("spark.hadoop.fs.s3a.endpoint", "s3.amazonaws.com")
@@ -103,7 +105,7 @@ class SupplyChainDataPipeline:
             print(f"Suppliers loaded: {supplier_count:,}")
 
         except Exception as e:
-            print(f"Failed to read suppliers: {str(e)[:100]}...")
+            print(f"Failed to read suppliers: {str(e)[:]}...")
             suppliers_df = None
 
         # Read parts
@@ -291,11 +293,11 @@ class SupplyChainDataPipeline:
 
     def create_iceberg_tables(self):
         """Create Iceberg tables with PDF-compliant schema."""
-        print("Creating/verifying Iceberg tables with PDF schema...")
+        print("Creating/verifying Iceberg tables...")
 
         # Create suppliers table with PDF-compliant geo_coords struct
         self.spark.sql("""
-            CREATE TABLE cdf.dim_suppliers_v1 (
+            CREATE TABLE IF NOT EXISTS cdf.dim_suppliers_v1 (
                 supplier_id STRING,
                 supplier_code STRING, 
                 tenant_id STRING,
@@ -342,7 +344,7 @@ class SupplyChainDataPipeline:
 
         # Create parts table with PDF schema
         self.spark.sql("""
-            CREATE TABLE cdf.dim_parts_v1 (
+            CREATE TABLE IF NOT EXISTS cdf.dim_parts_v1 (
                 part_id STRING,
                 tenant_id STRING,
                 part_number STRING,
@@ -555,7 +557,7 @@ if __name__ == "__main__":
     pipeline = SupplyChainDataPipeline()
 
     try:
-        success = pipeline.run_pipeline("2025-09-15")
+        success = pipeline.run_pipeline("2025-09-16")
         exit_code = 0 if success else 1
     except Exception as e:
         print(f"Pipeline error: {e}")

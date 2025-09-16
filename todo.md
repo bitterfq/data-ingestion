@@ -70,9 +70,13 @@
 2. Make destination pathing agnostic, figure out how to do that.
 
 3. Setup automation instead of remembering pyspark command [DONE]
-4. When writing -> airbyte timestamp is UTC and so its a day ahead of S3 [IMPORTANT][USE UTC 0 INSTEAD][STANDARIZATION TIME FORMAT]
+4. When writing -> airbyte timestamp is UTC and so its a day ahead of S3 [IMPORTANT][USE UTC 0 INSTEAD][STANDARIZATION TIME FORMAT] [DONE]
 
-5. figure out why a spark-warehouse folder gets created using pyspark
+5. figure out why a spark-warehouse folder gets created using pyspark [DONE]
 6. S3 timestamp difference between parts and suppliers in the folders i.e one might be microseconds ahead/different
    1. s3://cdf-upload/tenant_dddd/2025-09-13/20250913_190448/suppliers.csv
       s3://cdf-upload/tenant_dddd/2025-09-13/20250913_190449/parts.csv
+
+# SEP 16
+
+1. GENERATOR -> SNOWFLAKE -> AIRBYTE CONNECTOR SETUP
