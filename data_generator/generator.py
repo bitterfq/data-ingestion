@@ -23,7 +23,8 @@ import pandas as pd
 from faker import Faker
 from typing import List, Dict, Any, Optional
 import ulid
-from datetime import datetime, timedelta
+import datetime as dt
+from datetime import timedelta
 import csv
 import boto3
 from botocore.exceptions import ClientError
@@ -192,7 +193,7 @@ class Generator:
             },
             "data_source": "synthetic.v1",
             "source_timestamp": self._generate_source_timestamp(),
-            "ingestion_timestamp": "2024-01-01T00:00:00",
+            "ingestion_timestamp": dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
             "schema_version": "1.0.0"
         }
 
@@ -242,14 +243,15 @@ class Generator:
 
     def _generate_source_timestamp(self) -> str:
         """
-        Generate a random ISO timestamp within the last 30 days.
+        Generate a random UTC timestamp within the last 30 days.
 
         Returns:
-            str: ISO formatted timestamp.
+            str: ISO 8601 formatted timestamp with UTC timezone.
         """
         days_ago = random.randint(0, 30)
-        timestamp = datetime.now() - timedelta(days=days_ago)
-        return timestamp.isoformat()
+        timestamp = dt.datetime.now(dt.timezone.utc) - \
+            timedelta(days=days_ago)
+        return timestamp.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
 
     def _generate_part_record(self, supplier_ids: List[str]) -> Dict[str, Any]:
         """
@@ -307,7 +309,7 @@ class Generator:
             "last_price_change": self._generate_price_change_date(),
             "data_source": "synthetic.v1",
             "source_timestamp": self._generate_source_timestamp(),
-            "ingestion_timestamp": "2024-01-01T00:00:00",
+            "ingestion_timestamp": dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
             "schema_version": "1.0.0"
         }
 
@@ -333,13 +335,13 @@ class Generator:
 
     def _generate_price_change_date(self) -> str:
         """
-        Generate a random date for last price change.
+        Generate a random UTC date for last price change.
 
         Returns:
-            str: ISO formatted date.
+            str: ISO 8601 formatted date.
         """
         days_ago = random.randint(30, 365)
-        date = datetime.now() - timedelta(days=days_ago)
+        date = dt.datetime.now(dt.timezone.utc) - timedelta(days=days_ago)
         return date.date().isoformat()
 
     def generate_suppliers(self, count: int = 30000) -> List[Dict[str, Any]]:
@@ -425,7 +427,8 @@ class Generator:
                         [s for s in suppliers if s != supplier])
                     supplier["supplier_code"] = other_supplier["supplier_code"]
             elif anomaly_type == "future_timestamp":
-                future_date = datetime.now() + timedelta(days=random.randint(1, 30))
+                future_date = dt.datetime.now(
+                    dt.timezone.utc) + timedelta(days=random.randint(1, 30))
                 supplier["source_timestamp"] = future_date.isoformat()
 
     def _inject_part_anomalies(self, parts: List[Dict[str, Any]], dirty_indices: List[int]):
@@ -454,7 +457,8 @@ class Generator:
                     other_part = random.choice([p for p in parts if p != part])
                     part["part_number"] = other_part["part_number"]
             elif anomaly_type == "future_timestamp":
-                future_date = datetime.now() + timedelta(days=random.randint(1, 30))
+                future_date = datetime.now(
+                    datetime.timezone.utc) + timedelta(days=random.randint(1, 30))
                 part["source_timestamp"] = future_date.isoformat()
 
     def export_to_parquet(self, data: List[Dict[str, Any]], filename: str):
@@ -731,13 +735,14 @@ class GeneratorWithUpload(Generator):
 
     def _upload_file(self, local_filename):
         """
-        Upload a file to the configured S3 bucket.
+        Upload a file to the configured S3 bucket using UTC timestamps.
 
         Args:
             local_filename (str): Path to the local file to upload.
         """
-        run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        date_folder = datetime.now().strftime("%Y-%m-%d")
+        utc_now = dt.datetime.now(dt.timezone.utc)
+        run_id = utc_now.strftime("%Y%m%d_%H%M%S")
+        date_folder = utc_now.strftime("%Y-%m-%d")
         remote_path = f"{self.tenant_id}/{date_folder}/{run_id}/{os.path.basename(local_filename)}"
         try:
             self.s3_client.upload_file(
@@ -748,7 +753,7 @@ class GeneratorWithUpload(Generator):
         except Exception as e:
             print(f"Upload failed: {e}")
             return None
-
+    
     def close_connections(self):
         """
         Close database connections.
@@ -808,11 +813,11 @@ class GeneratorWithUpload(Generator):
 if __name__ == "__main__":
     # Example usage: generate and export a full dataset
     generator = GeneratorWithUpload(
-        seed=42, tenant_id="tenant_acme", auto_upload=True, use_postgres=False)
+        seed=2, tenant_id="tenant_acme", auto_upload=True, use_postgres=False)
 
     try:
         result = generator.generate_and_export_full_dataset(
-            num_suppliers=30000, num_parts=30000, include_dirty_data=False
+            num_suppliers=5000, num_parts=5000, include_dirty_data=False
         )
         print(
             f"Complete! Generated {result['suppliers_count']} suppliers, {result['parts_count']} parts")
