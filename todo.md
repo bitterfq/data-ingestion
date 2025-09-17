@@ -80,3 +80,13 @@
 # SEP 16
 
 1. GENERATOR -> SNOWFLAKE -> AIRBYTE CONNECTOR SETUP
+2. spark -> glue check that angle, bc melvin needs to keep rerunning crawlers to keep up and it breaks. [DONE]
+3. figure out what pg connection in airbyte is doing.
+4. document bugs
+   - double write from pipeline
+   - S3 timestamp difference between parts and suppliers in the folders i.e one might be microseconds ahead/different
+      s3://cdf-upload/tenant_dddd/2025-09-13/20250913_190448/suppliers.csv
+      s3://cdf-upload/tenant_dddd/2025-09-13/20250913_190449/parts.csv
+   - Make destination pathing agnostic
+   - schema mismatch when double running csv pipeline
+5. document learnings
