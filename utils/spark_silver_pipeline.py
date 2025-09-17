@@ -36,31 +36,32 @@ class SupplyChainDataPipeline:
 
         self.aws_key = os.getenv("AWS_ACCESS_KEY_ID")
         self.aws_secret = os.getenv("AWS_SECRET_ACCESS_KEY")
-        self.warehouse_path = "s3a://cdf-silver/warehouse/"
+        self.warehouse_path = "s3://cdf-silver/warehouse/"
 
         self.spark = (
             SparkSession.builder
             .appName("SupplyChainDataQuality")
-            .config("spark.sql.catalog.cdf", "org.apache.iceberg.spark.SparkCatalog")
-            .config("spark.sql.catalog.cdf.type", "hadoop")
-            .config("spark.sql.catalog.cdf.warehouse", self.warehouse_path)
+            # Use Glue Catalog instead of hadoop/spark_catalog
+            .config("spark.sql.catalog.glue_catalog", "org.apache.iceberg.spark.SparkCatalog")
+            .config("spark.sql.catalog.glue_catalog.catalog-impl", "org.apache.iceberg.aws.glue.GlueCatalog")
+            .config("spark.sql.catalog.glue_catalog.io-impl", "org.apache.iceberg.aws.s3.S3FileIO")
+            .config("spark.sql.catalog.glue_catalog.warehouse", self.warehouse_path)
             .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
-            .config("spark.sql.defaultCatalog", "cdf")
+            .config("spark.sql.defaultCatalog", "glue_catalog")
+            # AWS credentials
             .config("spark.hadoop.fs.s3a.access.key", self.aws_key)
             .config("spark.hadoop.fs.s3a.secret.key", self.aws_secret)
             .config("spark.hadoop.fs.s3a.endpoint", "s3.amazonaws.com")
             .config("spark.hadoop.fs.s3a.fast.upload", "true")
+            # Spark performance
             .config("spark.executor.memory", "4g")
             .config("spark.driver.memory", "2g")
             .config("spark.executor.memoryOverhead", "1024")
             .config("spark.driver.maxResultSize", "2g")
             .config("spark.sql.adaptive.enabled", "true")
-            .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
-            .config("spark.sql.adaptive.coalescePartitions.minPartitionNum", "1")
             .config("spark.sql.shuffle.partitions", "16")
             .config("spark.sql.files.maxRecordsPerFile", "50000")
             .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
-            .config("spark.serializer.objectStreamReset", "100")
             .getOrCreate()
         )
 
@@ -68,10 +69,11 @@ class SupplyChainDataPipeline:
         print(f"Spark session initialized - Warehouse: {self.warehouse_path}")
 
     def read_source_data(self, run_date="2025-09-14"):
-        """Read suppliers and parts from Airbyte processed S3 data."""
+        """Read suppliers and parts from Airbyte processed S3 data, 
+        clean metadata, fix column swaps, and cast numeric fields to PDF spec types."""
         print(f"Reading data for {run_date}...")
 
-        # Read suppliers
+        # ---------- Suppliers ----------
         suppliers_path = f"s3a://cdf-raw/processed/tenant_acme/suppliers/{run_date}/*/suppliers*.parquet*"
         try:
             suppliers_df = self.spark.read.parquet(suppliers_path)
@@ -92,7 +94,7 @@ class SupplyChainDataPipeline:
             for row in sample:
                 if row["tenant_id"] and row["tenant_id"].startswith("S"):
                     swap_detected = True
-                    print("WARNING: Detected Postgres column swap - fixing...")
+                    print("WARNING: Detected Postgres column swap in suppliers - fixing...")
                     break
 
             if swap_detected:
@@ -101,6 +103,20 @@ class SupplyChainDataPipeline:
                     .withColumnRenamed("supplier_code", "tenant_id") \
                     .withColumnRenamed("supplier_code_temp", "supplier_code")
 
+            # Cast numeric fields to PDF-compliant schema
+            cast_map = {
+                "risk_score": DoubleType(),
+                "on_time_delivery_rate": DoubleType(),
+                "defect_rate_ppm": IntegerType(),
+                "capacity_units_per_week": IntegerType(),
+                "lead_time_days_avg": IntegerType(),
+                "lead_time_days_p95": IntegerType(),
+            }
+            for col_name, dtype in cast_map.items():
+                if col_name in suppliers_df.columns:
+                    suppliers_df = suppliers_df.withColumn(
+                        col_name, col(col_name).cast(dtype))
+
             supplier_count = suppliers_df.count()
             print(f"Suppliers loaded: {supplier_count:,}")
 
@@ -108,7 +124,7 @@ class SupplyChainDataPipeline:
             print(f"Failed to read suppliers: {str(e)[:]}...")
             suppliers_df = None
 
-        # Read parts
+        # ---------- Parts ----------
         parts_path = f"s3a://cdf-raw/processed/tenant_acme/parts/{run_date}/*/parts*.parquet*"
         try:
             parts_df = self.spark.read.parquet(parts_path)
@@ -118,7 +134,7 @@ class SupplyChainDataPipeline:
                 if col_name in parts_df.columns:
                     parts_df = parts_df.drop(col_name)
 
-            # Check for column swap in parts
+            # Detect and fix column swap in parts
             if parts_df is not None:
                 sample = parts_df.select("tenant_id").limit(10).collect()
                 swap_detected = False
@@ -126,8 +142,7 @@ class SupplyChainDataPipeline:
                 for row in sample:
                     if row["tenant_id"] and row["tenant_id"].startswith("P-"):
                         swap_detected = True
-                        print(
-                            "WARNING: Detected Postgres column swap in parts - fixing...")
+                        print("WARNING: Detected Postgres column swap in parts - fixing...")
                         break
 
                 if swap_detected:
@@ -135,6 +150,18 @@ class SupplyChainDataPipeline:
                         .withColumnRenamed("tenant_id", "part_number_temp") \
                         .withColumnRenamed("part_number", "tenant_id") \
                         .withColumnRenamed("part_number_temp", "part_number")
+
+                # Cast numeric fields to PDF-compliant schema
+                cast_map = {
+                    "unit_cost": DecimalType(18, 6),
+                    "moq": IntegerType(),
+                    "lead_time_days_avg": IntegerType(),
+                    "lead_time_days_p95": IntegerType(),
+                }
+                for col_name, dtype in cast_map.items():
+                    if col_name in parts_df.columns:
+                        parts_df = parts_df.withColumn(
+                            col_name, col(col_name).cast(dtype))
 
                 parts_count = parts_df.count()
                 print(f"Parts loaded: {parts_count:,}")
@@ -295,9 +322,13 @@ class SupplyChainDataPipeline:
         """Create Iceberg tables with PDF-compliant schema."""
         print("Creating/verifying Iceberg tables...")
 
+        self.spark.sql(
+            "CREATE DATABASE IF NOT EXISTS glue_catalog.supply_chain")
+
+
         # Create suppliers table with PDF-compliant geo_coords struct
         self.spark.sql("""
-            CREATE TABLE IF NOT EXISTS cdf.dim_suppliers_v1 (
+            CREATE TABLE IF NOT EXISTS glue_catalog.supply_chain.dim_suppliers_v1 (
                 supplier_id STRING,
                 supplier_code STRING, 
                 tenant_id STRING,
@@ -336,15 +367,19 @@ class SupplyChainDataPipeline:
                 dq_timestamp TIMESTAMP
             ) USING iceberg
             PARTITIONED BY (tenant_id, bucket(16, supplier_id))
+            LOCATION 's3://cdf-silver/supply_chain/dim_suppliers_v1'
             TBLPROPERTIES (
                 'write.parquet.compression-codec' = 'snappy',
                 'write.target-file-size-bytes' = '134217728'
             )
         """)
 
+        self.spark.sql(
+            "CREATE DATABASE IF NOT EXISTS glue_catalog.supply_chain")
+
         # Create parts table with PDF schema
         self.spark.sql("""
-            CREATE TABLE IF NOT EXISTS cdf.dim_parts_v1 (
+            CREATE TABLE IF NOT EXISTS glue_catalog.supply_chain.dim_parts_v1 (
                 part_id STRING,
                 tenant_id STRING,
                 part_number STRING,
@@ -373,6 +408,7 @@ class SupplyChainDataPipeline:
                 dq_timestamp TIMESTAMP
             ) USING iceberg
             PARTITIONED BY (tenant_id, category, bucket(16, part_id))
+            LOCATION 's3://cdf-silver/supply_chain/dim_parts_v1'
             TBLPROPERTIES (
                 'write.parquet.compression-codec' = 'snappy',
                 'write.target-file-size-bytes' = '134217728'
@@ -431,7 +467,7 @@ class SupplyChainDataPipeline:
             "dq_violations", "is_valid", "dq_timestamp"
         ).coalesce(2)
 
-        suppliers_final.writeTo("cdf.dim_suppliers_v1").append()
+        suppliers_final.writeTo("glue_catalog.supply_chain.dim_suppliers_v1").append()
         print("Suppliers written to Iceberg")
 
         if parts_df is not None:
@@ -449,7 +485,7 @@ class SupplyChainDataPipeline:
                 "dq_violations", "is_valid", "dq_timestamp"
             ).coalesce(2)
 
-            parts_final.writeTo("cdf.dim_parts_v1").append()
+            parts_final.writeTo("glue_catalog.supply_chain.dim_parts_v1").append()
             print("Parts written to Iceberg")
 
     def run_pipeline(self, run_date="2025-09-14"):
@@ -521,19 +557,20 @@ class SupplyChainDataPipeline:
             # Verify PDF compliance
             print("\nPDF Compliance Verification:")
             supplier_count = self.spark.sql(
-                "SELECT COUNT(*) as count FROM cdf.dim_suppliers_v1").collect()[0]['count']
+                "SELECT COUNT(*) as count FROM glue_catalog.supply_chain.dim_suppliers_v1").collect()[0]['count']
             print(f"  Suppliers in Iceberg: {supplier_count:,}")
 
             # Check for geo_coords struct field
             supplier_schema = self.spark.sql(
-                "DESCRIBE cdf.dim_suppliers_v1").collect()
+                "DESCRIBE glue_catalog.supply_chain.dim_suppliers_v1").collect()
+
             has_geo_coords = any("geo_coords" in str(
                 row) and "struct" in str(row) for row in supplier_schema)
             print(f"  geo_coords struct field present: {has_geo_coords}")
 
             if validated_parts is not None:
                 parts_count = self.spark.sql(
-                    "SELECT COUNT(*) as count FROM cdf.dim_parts_v1").collect()[0]['count']
+                    "SELECT COUNT(*) as count FROM glue_catalog.supply_chain.dim_parts_v1").collect()[0]['count']
                 print(f"  Parts in Iceberg: {parts_count:,}")
 
             print(
