@@ -1,61 +1,117 @@
 # Data Ingestion Pipeline PoC
 
 ## Overview
-Enterprise-ready data pipeline for ingesting 30k suppliers + 30k parts with scaling demonstration to 300k each. Built for production deployment with comprehensive data quality validation and monitoring.
+Enterprise-ready, multi-tenant data pipeline for ingesting and validating supplier and part data at scale. Supports both S3 and PostgreSQL as customer landing zones, with robust data quality validation, referential integrity, and modern lakehouse architecture.
 
-## Architecture Stack
-- **Ingestion**: Airbyte (300+ connectors, CDC support)
-- **Storage**: Apache Iceberg (ACID, time travel, multi-engine)
-- **Processing**: Apache Spark (enterprise-grade transformations)  
-- **Orchestration**: Apache Airflow (Python-native workflows)
-- **Quality**: Great Expectations (validation gates)
-- **Monitoring**: Prometheus + Grafana
+---
 
-```mermaid
-flowchart TD
-    %% Core components
-    A["Airbyte<br/>Ingestion"]
-    B["Apache Iceberg<br/>Lakehouse Storage"]
-    C["Apache Spark<br/>Processing"]
-    D["Great Expectations<br/>Data Quality"]
-    E["Apache Airflow<br/>Orchestration"]
-    PG["Prometheus & Grafana<br/>Monitoring & Alerts"]
+## Project Structure
 
-    %% Orchestration-driven flow
-    E -->|trigger runs| A
-    A -->|write/read| B
-    E -->|schedule jobs| C
-    C -->|read/write| B
-    C -->|validate with| D
-    D -->|results & checks| E
-
-    %% Monitoring across the pipeline (dashed = observe/scrape)
-    PG -.->|metrics/exporters| A
-    PG -.->|table/IO metrics| B
-    PG -.->|job/runtime metrics| C
-    PG -.->|validation metrics| D
-    PG -.->|DAG/task metrics| E
-
-    %% Feedback loops
-    D -.->|failures/tests trigger retries| E
-    PG -.->|alerts/incidents inform| E
+```
+data-ingestion/
+├── data_generator/
+│   ├── generator.py
+│   └── data/                # Generated CSV/Parquet files
+│
+├── bridge_service/
+│   └── bridge_service.py
+│
+├── utils/
+│   ├── spark_silver_pipeline.py
+│   └── s3_list.py
+│
+├── docs/
+│   ├── batch-pipeline-architecture.md
+│   ├── data_generator.md
+│   └── learnings.md
+│
+├── requirements.txt
+├── docker-compose.yml
+├── .env                     # Environment variables (not committed)
+└── README.md
 ```
 
-## Performance Targets
-- **Baseline**: 60k records in <20 minutes (4-node Spark cluster)
-- **Scale**: 600k records in <60 minutes (12-node Spark cluster)
-- **Data Quality**: 99% validation pass rate
-- **Cost**: <3x resource increase for 10x data volume
+---
 
+## Architecture Overview
+
+### Supported Ingestion Paths
+
+1. **S3 Landing Zone**
+    - Generator (CSV, Parquet) → Customer S3 Upload → Airbyte → S3 Raw → Spark → Silver (Iceberg) → AWS Glue (LlamaIndex)
+
+2. **PostgreSQL Landing Zone**
+    - Generator (CSV, Parquet) → PostgreSQL (Customer) → Airbyte → S3 Raw → Spark → Silver (Iceberg) → AWS Glue (LlamaIndex)
+
+### Core Stack
+
+- **Ingestion**: Airbyte (CSV/Parquet/PG connectors)
+- **Landing Zone**: S3 or PostgreSQL (customer-provided)
+- **Raw Zone**: S3 (`cdf-raw` bucket)
+- **Processing**: Apache Spark (validation, transformation)
+- **Silver Zone**: Apache Iceberg tables in S3 (`cdf-silver` bucket)
+- **Catalog**: AWS Glue (Iceberg metadata, LlamaIndex integration)
+- **Orchestration**: (Optional) Apache Airflow
+- **Quality**: Built-in validation, referential integrity, and anomaly injection
+
+---
 
 ## Data Contracts
-- **Suppliers**: 23 fields including risk metrics, certifications, compliance flags
-- **Parts**: 20 fields including qualified suppliers, costs, lead times
+
+- **Suppliers**: 23+ fields (risk metrics, certifications, geo-coords, compliance flags)
+- **Parts**: 20+ fields (qualified suppliers, costs, lead times, FKs)
 - **Validation**: PK uniqueness, FK integrity, business rules, freshness checks
 
+---
+
 ## Key Features
+
 - Multi-tenant isolation (tenant_id partitioning)
-- Automatic schema evolution and drift handling  
+- Deterministic, realistic data generation with dirty data injection
+- Automatic schema evolution and drift handling
 - Quarantine pattern for data quality failures
 - Complete audit trail and lineage tracking
 - Idempotent processing with safe reruns
+
+---
+
+## Performance Targets
+
+- **Baseline**: 60k records in <15 minutes (4-node Spark cluster)
+- **Scale**: 600k records in <60 minutes (12-node Spark cluster)
+- **Data Quality**: 99% validation pass rate
+
+---
+
+## Getting Started
+
+1. **Install dependencies**
+    ```sh
+    pip install -r requirements.txt
+    ```
+
+2. **Set up environment variables**
+    - Copy `.env.example` to `.env` and fill in AWS/PG credentials.
+
+3. **Generate data**
+    ```sh
+    python data_generator/generator.py
+    ```
+
+4. **Run pipeline**
+    ```sh
+        utils/spark_silver_pipeline.py
+    ```
+
+5. **(Optional) Use Docker Compose for local stack**
+    ```sh
+    docker-compose up
+    ```
+
+---
+
+## Documentation
+
+- [docs/batch-pipeline-architecture.md](docs/batch-pipeline-architecture.md)
+- [docs/data_generator.md](docs/data_generator.md)
+-
