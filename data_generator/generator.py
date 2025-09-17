@@ -608,7 +608,7 @@ class GeneratorWithUpload(Generator):
 
     def insert_to_postgres(self, data: List[Dict[str, Any]], table_name: str):
         """
-        Insert data into PostgreSQL table using COPY command.
+        Insert data into PostgreSQL table using COPY command with UPSERT.
         
         Args:
             data (list): List of records to insert.
@@ -620,40 +620,84 @@ class GeneratorWithUpload(Generator):
         try:
             import tempfile
             import os
+            import time
 
             with self.pg_conn.cursor() as cursor:
-                # Clear existing data for this tenant
-                cursor.execute(
-                    f"DELETE FROM {table_name} WHERE tenant_id = %s", (self.tenant_id,))
+                # Create temporary table for staging
+                temp_table = f"temp_{table_name}_{int(time.time())}"
 
-                # Create temporary CSV file with database-compatible format
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, encoding='utf-8') as temp_file:
-                    temp_path = temp_file.name
+                try:
+                    cursor.execute(
+                        f"CREATE TEMP TABLE {temp_table} (LIKE {table_name})")
 
-                    # Create CSV data that matches database schema exactly
-                    self._export_postgres_csv(data, temp_path)
+                    # Create temporary CSV file with database-compatible format
+                    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, encoding='utf-8') as temp_file:
+                        temp_path = temp_file.name
+                        self._export_postgres_csv(data, temp_path)
 
-                # Define explicit column order to match PostgreSQL schema
-                if table_name == "suppliers":
-                    columns = "supplier_id,tenant_id,supplier_code,legal_name,dba_name,country,region,address_line1,address_line2,city,state,postal_code,contact_email,contact_phone,preferred_currency,incoterms,lead_time_days_avg,lead_time_days_p95,on_time_delivery_rate,defect_rate_ppm,capacity_units_per_week,risk_score,financial_risk_tier,certifications,compliance_flags,approved_status,contracts,terms_version,geo_coords,data_source,source_timestamp,ingestion_timestamp,schema_version"
-                elif table_name == "parts":
-                    columns = "part_id,tenant_id,part_number,description,category,lifecycle_status,uom,spec_hash,bom_compatibility,default_supplier_id,qualified_supplier_ids,unit_cost,moq,lead_time_days_avg,lead_time_days_p95,quality_grade,compliance_flags,hazard_class,last_price_change,data_source,source_timestamp,ingestion_timestamp,schema_version"
+                    # Define schema mappings
+                    if table_name == "suppliers":
+                        columns = "supplier_id,tenant_id,supplier_code,legal_name,dba_name,country,region,address_line1,address_line2,city,state,postal_code,contact_email,contact_phone,preferred_currency,incoterms,lead_time_days_avg,lead_time_days_p95,on_time_delivery_rate,defect_rate_ppm,capacity_units_per_week,risk_score,financial_risk_tier,certifications,compliance_flags,approved_status,contracts,terms_version,geo_coords,data_source,source_timestamp,ingestion_timestamp,schema_version"
+                        pk_column = "supplier_id"
+                        update_set = """
+                            legal_name = EXCLUDED.legal_name,
+                            risk_score = EXCLUDED.risk_score,
+                            on_time_delivery_rate = EXCLUDED.on_time_delivery_rate,
+                            defect_rate_ppm = EXCLUDED.defect_rate_ppm,
+                            approved_status = EXCLUDED.approved_status,
+                            source_timestamp = EXCLUDED.source_timestamp,
+                            ingestion_timestamp = EXCLUDED.ingestion_timestamp
+                        """
+                    elif table_name == "parts":
+                        columns = "part_id,tenant_id,part_number,description,category,lifecycle_status,uom,spec_hash,bom_compatibility,default_supplier_id,qualified_supplier_ids,unit_cost,moq,lead_time_days_avg,lead_time_days_p95,quality_grade,compliance_flags,hazard_class,last_price_change,data_source,source_timestamp,ingestion_timestamp,schema_version"
+                        pk_column = "part_id"
+                        update_set = """
+                            unit_cost = EXCLUDED.unit_cost,
+                            moq = EXCLUDED.moq,
+                            lead_time_days_avg = EXCLUDED.lead_time_days_avg,
+                            lead_time_days_p95 = EXCLUDED.lead_time_days_p95,
+                            lifecycle_status = EXCLUDED.lifecycle_status,
+                            default_supplier_id = EXCLUDED.default_supplier_id,
+                            qualified_supplier_ids = EXCLUDED.qualified_supplier_ids,
+                            source_timestamp = EXCLUDED.source_timestamp,
+                            ingestion_timestamp = EXCLUDED.ingestion_timestamp
+                        """
+                    else:
+                        raise ValueError(f"Unknown table_name: {table_name}")
 
-                # Use COPY command to bulk insert with explicit column mapping
-                with open(temp_path, 'r', encoding='utf-8') as f:
-                    cursor.copy_expert(
-                        f"COPY {table_name}({columns}) FROM STDIN WITH CSV HEADER", f)
+                    # COPY data to temp table
+                    with open(temp_path, 'r', encoding='utf-8') as f:
+                        cursor.copy_expert(
+                            f"COPY {temp_table}({columns}) FROM STDIN WITH CSV HEADER", f)
 
-                # Clean up temp file
-                os.unlink(temp_path)
+                    # UPSERT from temp table to main table
+                    upsert_sql = f"""
+                        INSERT INTO {table_name} 
+                        SELECT * FROM {temp_table}
+                        ON CONFLICT ({pk_column}) 
+                        DO UPDATE SET {update_set}
+                    """
+                    cursor.execute(upsert_sql)
 
-                self.pg_conn.commit()
-                print(
-                    f"Inserted {len(data)} records into {table_name} using COPY")
+                    self.pg_conn.commit()
+                    print(
+                        f"Inserted {len(data)} records into {table_name} using COPY")
+
+                finally:
+                    # Always clean up temp file and table
+                    try:
+                        os.unlink(temp_path)
+                    except:
+                        pass
+                    try:
+                        cursor.execute(f"DROP TABLE IF EXISTS {temp_table}")
+                    except:
+                        pass
 
         except Exception as e:
             print(f"PostgreSQL COPY insert failed: {e}")
             self.pg_conn.rollback()
+
 
     def _export_postgres_csv(self, data: List[Dict[str, Any]], filename: str):
         """
@@ -813,7 +857,7 @@ class GeneratorWithUpload(Generator):
 if __name__ == "__main__":
     # Example usage: generate and export a full dataset
     generator = GeneratorWithUpload(
-        seed=2, tenant_id="tenant_acme", auto_upload=True, use_postgres=False)
+        seed=32, tenant_id="tenant_acme", auto_upload=False, use_postgres=True)
 
     try:
         result = generator.generate_and_export_full_dataset(
