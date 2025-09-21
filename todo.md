@@ -90,3 +90,11 @@
    - Make destination pathing agnostic
    - schema mismatch when double running csv pipeline
 5. document learnings
+
+move to go -> ignore the numerical gen complexity dumb it donw
+create the gen as a cli
+go test 
+
+just dump to a file
+small commits and incremental reviews
+sqlite vs pgs

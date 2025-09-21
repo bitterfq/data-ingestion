@@ -457,8 +457,8 @@ class Generator:
                     other_part = random.choice([p for p in parts if p != part])
                     part["part_number"] = other_part["part_number"]
             elif anomaly_type == "future_timestamp":
-                future_date = datetime.now(
-                    datetime.timezone.utc) + timedelta(days=random.randint(1, 30))
+                future_date = dt.datetime.now(
+                    dt.timezone.utc) + timedelta(days=random.randint(1, 30))
                 part["source_timestamp"] = future_date.isoformat()
 
     def export_to_parquet(self, data: List[Dict[str, Any]], filename: str):
@@ -861,7 +861,7 @@ if __name__ == "__main__":
 
     try:
         result = generator.generate_and_export_full_dataset(
-            num_suppliers=5000, num_parts=5000, include_dirty_data=False
+            num_suppliers=100000, num_parts=100000, include_dirty_data=False
         )
         print(
             f"Complete! Generated {result['suppliers_count']} suppliers, {result['parts_count']} parts")
