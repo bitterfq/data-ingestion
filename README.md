@@ -165,4 +165,3 @@ POSTGRES_DB=supply_chain
 - [docs/batch-pipeline-architecture.md](docs/batch-pipeline-architecture.md) - Detailed architecture
 - [docs/data_generator.md](docs/data_generator.md) - Data generation specs
 - [docs/learnings.md](docs/learnings.md) - Implementation insights
-
