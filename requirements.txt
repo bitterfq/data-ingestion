@@ -4,6 +4,7 @@ faker
 ulid-py
 pyarrow
 pytest
+awscli
 minio
 boto3
 python-dotenv
