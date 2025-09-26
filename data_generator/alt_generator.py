@@ -1,7 +1,7 @@
 """
-OPTIMIZED Data Generator for Supply Chain POC - High Performance Version
+Data Generator for Supply Chain POC - High Performance Version
 
-Key optimizations:
+Key features:
 - Vectorized numpy operations instead of loops
 - Bulk data generation with pre-allocated arrays
 - Chunked processing for memory efficiency
@@ -11,25 +11,28 @@ Key optimizations:
 Performance target: 100k suppliers + 100k parts in <2 minutes
 """
 
-import os
-import random
-import numpy as np
-import pandas as pd
-from faker import Faker
-from typing import List, Dict, Any, Optional
-import ulid
-import datetime as dt
-from datetime import timedelta
-import csv
-import boto3
-import psycopg2
-import json
-import decimal
-from concurrent.futures import ThreadPoolExecutor
 import multiprocessing as mp
+from concurrent.futures import ThreadPoolExecutor
+import decimal
+import json
+import psycopg2
+import boto3
+import csv
+from datetime import timedelta
+import datetime as dt
+import ulid
+from typing import List, Dict, Any, Optional
+from faker import Faker
+import numpy as np
+import random
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from utils.otel_setup import init_tracer
 
 
-class FastGenerator:
+
+class DataGenerator:
     """High-performance vectorized data generator"""
 
     def __init__(self, seed: int = 42, tenant_id: str = "tenant_acme"):
@@ -70,27 +73,20 @@ class FastGenerator:
             "DE": "EMEA", "PL": "EMEA"
         }
 
-    def generate_suppliers_vectorized(self, count: int) -> List[Dict[str, Any]]:
+    def generate_suppliers(self, count: int) -> List[Dict[str, Any]]:
         """Generate suppliers using vectorized operations"""
         print(f"Generating {count:,} suppliers...")
 
-        # Pre-generate all ULIDs at once
         supplier_ids = [ulid.new().str for _ in range(count)]
-
-        # Vectorized numeric generation
         on_time_rates = np.clip(np.random.normal(93, 5, count), 60, 100)
         risk_scores = np.clip(100 - on_time_rates +
                               np.random.normal(5, 3, count), 0, 100)
-
-        # Vectorized categorical sampling
         countries = np.random.choice(
             self.countries, size=count, p=self.country_probs)
         currencies = np.array([self.currency_map.get(c, "USD")
                               for c in countries])
         regions = np.array([self.region_map.get(c, "OTHER")
                            for c in countries])
-
-        # Generate other fields vectorized
         lead_times_avg = np.clip(np.random.normal(
             21, 6, count), 3, 90).astype(int)
         lead_times_p95 = np.clip(np.random.normal(
@@ -98,26 +94,17 @@ class FastGenerator:
         defect_rates = np.abs(np.random.normal(250, 180, count)).astype(int)
         capacities = (np.abs(np.random.normal(
             5000, 3000, count)) + 100).astype(int)
-
-        # Status sampling
         statuses = np.random.choice(
             ["APPROVED", "PENDING", "SUSPENDED", "BLACKLISTED"],
             size=count, p=[0.80, 0.15, 0.04, 0.01]
         )
-
-        # Financial tiers based on risk scores
         tiers = np.where(risk_scores < 35, "LOW",
                          np.where(risk_scores < 60, "MEDIUM", "HIGH"))
-
-        # Supplier codes
         supplier_codes = [
             f"S{random.randint(100000, 999999)}" for _ in range(count)]
-
-        # Company names (reuse pre-generated)
         company_indices = np.random.choice(len(self.company_names), count)
         legal_names = [self.company_names[i] for i in company_indices]
 
-        # Build records
         suppliers = []
         base_timestamp = dt.datetime.now(dt.timezone.utc)
 
@@ -161,66 +148,45 @@ class FastGenerator:
                 "schema_version": "1.0.0"
             })
 
-            # Progress indicator
             if (i + 1) % 10000 == 0:
                 print(f"  Generated {i+1:,} suppliers...")
 
         return suppliers
 
-    def generate_parts_vectorized(self, count: int, supplier_ids: List[str]) -> List[Dict[str, Any]]:
+    def generate_parts(self, count: int, supplier_ids: List[str]) -> List[Dict[str, Any]]:
         """Generate parts using vectorized operations"""
         print(f"Generating {count:,} parts...")
 
-        # Pre-generate all ULIDs
         part_ids = [ulid.new().str for _ in range(count)]
-
-        # Vectorized category sampling
         categories = np.random.choice(
             self.part_categories, size=count, p=self.category_probs)
-
-        # Lead times by category (vectorized)
         lead_means = np.where(categories == "ELECTRICAL", 32,
                               np.where(categories == "MECHANICAL", 24,
                                        np.where(categories == "RAW_MATERIAL", 14, 20)))
         lead_stds = np.where(categories == "ELECTRICAL", 8,
                              np.where(categories == "MECHANICAL", 6,
                                       np.where(categories == "RAW_MATERIAL", 4, 5)))
-
         lead_times_avg = np.clip(np.random.normal(
             lead_means, lead_stds), 2, 200).astype(int)
         lead_times_p95 = np.clip(np.random.normal(
             lead_means + 8, lead_stds), 5, 250).astype(int)
-
-        # Unit costs (log-normal distribution)
         unit_costs = np.round(np.exp(np.random.normal(3.0, 0.8, count)), 2)
-
-        # MOQs
         moqs = np.random.choice([1, 10, 50, 100, 500], size=count)
-
-        # Quality grades
         quality_grades = np.random.choice(
             ["A", "B", "C"], size=count, p=[0.6, 0.3, 0.1])
-
-        # Lifecycle status
         lifecycle_statuses = np.random.choice(
             ["ACTIVE", "NEW", "NRND", "EOL"],
             size=count, p=[0.75, 0.10, 0.10, 0.05]
         )
-
-        # UOMs
         uoms = np.random.choice(
             ["EA", "KG", "M"], size=count, p=[0.7, 0.2, 0.1])
-
-        # Part numbers
         part_numbers = [
             f"P-{random.randint(100000, 999999)}" for _ in range(count)]
 
-        # Build parts
         parts = []
         base_timestamp = dt.datetime.now(dt.timezone.utc)
 
         for i in range(count):
-            # Sample 1-3 qualified suppliers
             num_qualified = random.choice([1, 2, 3])
             qualified_supplier_ids = random.sample(
                 supplier_ids, min(num_qualified, len(supplier_ids)))
@@ -251,14 +217,13 @@ class FastGenerator:
                 "schema_version": "1.0.0"
             })
 
-            # Progress indicator
             if (i + 1) % 10000 == 0:
                 print(f"  Generated {i+1:,} parts...")
 
         return parts
 
-    def inject_dirty_data_fast(self, data: List[Dict[str, Any]], data_type: str, anomaly_rate: float = 0.06):
-        """Fast dirty data injection using vectorized operations"""
+    def inject_dirty_data(self, data: List[Dict[str, Any]], data_type: str, anomaly_rate: float = 0.06):
+        """Dirty data injection using vectorized operations"""
         dirty_data = data.copy()
         num_anomalies = int(len(data) * anomaly_rate)
         dirty_indices = set(random.sample(range(len(data)), num_anomalies))
@@ -301,11 +266,36 @@ class FastGenerator:
 
         return dirty_data
 
+    def inject_dirty_data_safe(self, data: List[Dict[str, Any]], data_type: str, anomaly_rate: float = 0.06):
+        """Safe dirty data injection that avoids FK violations for parts"""
+        dirty_data = data.copy()
+        num_anomalies = int(len(data) * anomaly_rate)
+        dirty_indices = set(random.sample(range(len(data)), num_anomalies))
+
+        print(f"Injecting {num_anomalies:,} anomalies into {data_type}...")
+
+        if data_type == "parts":
+            for idx in dirty_indices:
+                part = dirty_data[idx]
+                anomaly_type = random.choice([
+                    "negative_cost", "wrong_uom", "future_timestamp"
+                ])
+
+                if anomaly_type == "negative_cost":
+                    part["unit_cost"] = -random.uniform(1.0, 100.0)
+                elif anomaly_type == "wrong_uom":
+                    part["uom"] = "INVALID"
+                elif anomaly_type == "future_timestamp":
+                    future_date = dt.datetime.now(
+                        dt.timezone.utc) + timedelta(days=random.randint(1, 30))
+                    part["source_timestamp"] = future_date.isoformat()
+
+        return dirty_data
+
     def export_chunked_csv(self, data: List[Dict[str, Any]], filename: str, chunk_size: int = 50000):
         """Export large datasets in chunks for memory efficiency"""
         print(f"Exporting {len(data):,} records to {filename}...")
 
-        # Flatten data structure for CSV
         def flatten_record(record):
             flat_record = record.copy()
             if 'geo_coords' in flat_record and flat_record['geo_coords']:
@@ -316,7 +306,6 @@ class FastGenerator:
                     flat_record[k] = ','.join(map(str, v)) if v else ''
             return flat_record
 
-        # Write header and first chunk to establish file
         if data:
             first_chunk = data[:chunk_size]
             flattened_chunk = [flatten_record(record)
@@ -328,7 +317,6 @@ class FastGenerator:
                 writer.writeheader()
                 writer.writerows(flattened_chunk)
 
-            # Append remaining chunks
             for i in range(chunk_size, len(data), chunk_size):
                 chunk = data[i:i + chunk_size]
                 flattened_chunk = [flatten_record(record) for record in chunk]
@@ -340,11 +328,10 @@ class FastGenerator:
                 print(
                     f"  Exported {min(i + chunk_size, len(data)):,} records...")
 
-    def export_parquet_fast(self, data: List[Dict[str, Any]], filename: str):
-        """Fast parquet export using pandas with optimizations"""
+    def export_parquet(self, data: List[Dict[str, Any]], filename: str):
+        """Export data to Parquet using pandas with optimizations"""
         print(f"Exporting {len(data):,} records to {filename}...")
 
-        # Convert to DataFrame in chunks to avoid memory issues
         chunk_size = 50000
         dfs = []
 
@@ -352,7 +339,6 @@ class FastGenerator:
             chunk = data[i:i + chunk_size]
             df_chunk = pd.DataFrame(chunk)
 
-            # Handle nested structures
             if 'geo_coords' in df_chunk.columns:
                 df_chunk['geo_lat'] = df_chunk['geo_coords'].apply(
                     lambda x: x['lat'] if x else None)
@@ -360,7 +346,6 @@ class FastGenerator:
                     lambda x: x['lon'] if x else None)
                 df_chunk = df_chunk.drop('geo_coords', axis=1)
 
-            # Convert lists to strings
             for col in df_chunk.columns:
                 if df_chunk[col].dtype == 'object':
                     sample_val = df_chunk[col].dropna(
@@ -371,20 +356,21 @@ class FastGenerator:
 
             dfs.append(df_chunk)
 
-        # Concatenate and save
         final_df = pd.concat(dfs, ignore_index=True)
         final_df.to_parquet(filename, compression='snappy',
                             row_group_size=100000, index=False)
 
 
-class FastGeneratorWithUpload(FastGenerator):
-    """Fast generator with S3 upload and PostgreSQL capability"""
+class DataGeneratorWithUpload(DataGenerator):
+    """Data generator with S3 upload and PostgreSQL capability"""
 
-    def __init__(self, seed=42, tenant_id="tenant_acme", auto_upload=True, s3_bucket="cdf-upload", use_postgres=True):
+    def __init__(self, seed=42, tenant_id="tenant_acme", auto_upload=True,
+                s3_bucket="cdf-upload", use_postgres=True, tracer=None):
         super().__init__(seed, tenant_id)
         self.auto_upload = auto_upload
         self.s3_bucket = s3_bucket
         self.use_postgres = use_postgres
+        self.tracer = tracer or init_tracer("ingestion")
 
         if auto_upload:
             try:
@@ -394,7 +380,6 @@ class FastGeneratorWithUpload(FastGenerator):
                 print(f"S3 setup failed: {e}")
                 self.auto_upload = False
 
-        # PostgreSQL setup
         if use_postgres:
             try:
                 self.pg_conn = psycopg2.connect(
@@ -409,9 +394,9 @@ class FastGeneratorWithUpload(FastGenerator):
                 print(f"PostgreSQL setup failed: {e}")
                 self.use_postgres = False
 
-    def insert_to_postgres_fast(self, data: List[Dict[str, Any]], table_name: str):
+    def insert_to_postgres(self, data: List[Dict[str, Any]], table_name: str):
         """
-        Fast PostgreSQL insertion using COPY command - CLEAN DATA ONLY
+        PostgreSQL insertion using COPY command - CLEAN DATA ONLY
         """
         if not self.use_postgres or not data:
             return
@@ -430,13 +415,11 @@ class FastGeneratorWithUpload(FastGenerator):
                     cursor.execute(
                         f"CREATE TEMP TABLE {temp_table} (LIKE {table_name})")
 
-                    # Create temp CSV for COPY command
                     with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, encoding='utf-8') as temp_file:
                         temp_path = temp_file.name
-                        self._export_postgres_csv_fast(
+                        self._export_postgres_csv(
                             data, temp_path, table_name)
 
-                    # Define columns based on table
                     if table_name == "suppliers":
                         columns = "supplier_id,tenant_id,supplier_code,legal_name,dba_name,country,region,address_line1,address_line2,city,state,postal_code,contact_email,contact_phone,preferred_currency,incoterms,lead_time_days_avg,lead_time_days_p95,on_time_delivery_rate,defect_rate_ppm,capacity_units_per_week,risk_score,financial_risk_tier,certifications,compliance_flags,approved_status,contracts,terms_version,geo_coords,data_source,source_timestamp,ingestion_timestamp,schema_version"
                         pk_column = "supplier_id"
@@ -444,12 +427,10 @@ class FastGeneratorWithUpload(FastGenerator):
                         columns = "part_id,tenant_id,part_number,description,category,lifecycle_status,uom,spec_hash,bom_compatibility,default_supplier_id,qualified_supplier_ids,unit_cost,moq,lead_time_days_avg,lead_time_days_p95,quality_grade,compliance_flags,hazard_class,last_price_change,data_source,source_timestamp,ingestion_timestamp,schema_version"
                         pk_column = "part_id"
 
-                    # Fast COPY operation
                     with open(temp_path, 'r', encoding='utf-8') as f:
                         cursor.copy_expert(
                             f"COPY {temp_table}({columns}) FROM STDIN WITH CSV HEADER", f)
 
-                    # UPSERT to main table
                     cursor.execute(f"""
                         INSERT INTO {table_name} 
                         SELECT * FROM {temp_table}
@@ -471,8 +452,8 @@ class FastGeneratorWithUpload(FastGenerator):
             print(f"PostgreSQL insert failed: {e}")
             self.pg_conn.rollback()
 
-    def _export_postgres_csv_fast(self, data: List[Dict[str, Any]], filename: str, table_name: str):
-        """Fast CSV export for PostgreSQL COPY command"""
+    def _export_postgres_csv(self, data: List[Dict[str, Any]], filename: str, table_name: str):
+        """CSV export for PostgreSQL COPY command"""
         if table_name == "suppliers":
             column_order = [
                 "supplier_id", "tenant_id", "supplier_code", "legal_name", "dba_name",
@@ -500,7 +481,6 @@ class FastGeneratorWithUpload(FastGenerator):
 
             for record in data:
                 pg_record = record.copy()
-                # Convert complex types for PostgreSQL
                 for key, value in pg_record.items():
                     if isinstance(value, (list, dict)):
                         pg_record[key] = json.dumps(value) if value else None
@@ -512,58 +492,62 @@ class FastGeneratorWithUpload(FastGenerator):
             self.pg_conn.close()
             print("PostgreSQL connection closed")
 
-    def generate_full_dataset_fast(self, num_suppliers=100000, num_parts=100000,
-                                   include_dirty_data=True, anomaly_rate=0.06):
+    def generate_full_dataset(self, num_suppliers=100000, num_parts=100000,
+                              include_dirty_data=True, anomaly_rate=0.06):
         """
-        Generate massive datasets optimized for speed
-        Target: 100k + 100k in under 2 minutes
-        Output: Just suppliers.csv and parts.csv with dirty data mixed in
+        Generate large datasets optimized for speed
+        Output: suppliers.csv and parts.csv with dirty data mixed in
         """
+        
         start_time = dt.datetime.now()
         print(
-            f"Starting fast generation: {num_suppliers:,} suppliers + {num_parts:,} parts")
+            f"Starting generation: {num_suppliers:,} suppliers + {num_parts:,} parts")
 
-        # Generate clean data using vectorized methods
-        suppliers = self.generate_suppliers_vectorized(num_suppliers)
-        supplier_ids = [s["supplier_id"] for s in suppliers]
-        parts = self.generate_parts_vectorized(num_parts, supplier_ids)
+        
+        with self.tracer.start_as_current_span("Suppliers Ingestion") as span:
+            suppliers = self.generate_suppliers(num_suppliers)
+            supplier_ids = [s["supplier_id"] for s in suppliers]
+            span.set_attribute("rows", num_suppliers)
+        
+        with self.tracer.start_as_current_span("Parts Ingestion") as span:
+            parts = self.generate_parts(num_parts, supplier_ids)
+            span.set_attribute("rows", num_parts)
 
-        # INSERT CLEAN DATA TO POSTGRESQL (if enabled and no dirty data)
+        # skip tracing for pg insert
         if self.use_postgres and not include_dirty_data:
             print("Inserting clean data to PostgreSQL...")
-            self.insert_to_postgres_fast(suppliers, "suppliers")
-            self.insert_to_postgres_fast(parts, "parts")
+            self.insert_to_postgres(suppliers, "suppliers")
+            self.insert_to_postgres(parts, "parts")
 
-        # Inject dirty data if requested (mixed into main datasets)
         if include_dirty_data:
-            print("Injecting dirty data for pipeline testing...")
-            suppliers = self.inject_dirty_data_fast(
-                suppliers, "suppliers", anomaly_rate)
-            # Remove FK violations from parts dirty data to prevent reference errors
-            parts_dirty_safe = self.inject_dirty_data_safe(
-                parts, "parts", anomaly_rate)
-            parts = parts_dirty_safe
+            with self.tracer.start_as_current_span("Dirty Data") as span:
+                print("Injecting dirty data for pipeline testing...")
+                suppliers = self.inject_dirty_data(
+                    suppliers, "suppliers", anomaly_rate)
+                parts_dirty_safe = self.inject_dirty_data_safe(
+                    parts, "parts", anomaly_rate)
+                parts = parts_dirty_safe
+                
+                span.set_attribute("anomaly_rate", anomaly_rate)
+                span.set_attribute("suppliers_with_anomalies", len(suppliers)*anomaly_rate)
+                span.set_attribute("parts_with_anomalies", len(parts)*anomaly_rate)
 
         data_dir = os.path.join(os.path.dirname(__file__), "data")
         os.makedirs(data_dir, exist_ok=True)
 
-        # Export SINGLE suppliers.csv and parts.csv files
         print("Exporting final datasets...")
         self.export_chunked_csv(
             suppliers, os.path.join(data_dir, "suppliers.csv"))
         self.export_chunked_csv(parts, os.path.join(data_dir, "parts.csv"))
 
-        # Also create parquet versions
-        #self.export_parquet_fast(
-        #    suppliers, os.path.join(data_dir, "suppliers.parquet"))
-        #self.export_parquet_fast(
-        #    parts, os.path.join(data_dir, "parts.parquet"))
-
-        # Upload ONLY the core files to S3
         if self.auto_upload:
-            print("Uploading core files to S3...")
-            self._upload_core_files(data_dir)
-
+            with self.tracer.start_as_current_span("S3 Upload") as span:
+                print("Uploading core files to S3...")
+                self._upload_core_files(data_dir)
+                span.set_attribute("s3_bucket", self.s3_bucket)
+                span.set_attribute("uploaded_files", ["suppliers.csv", "parts.csv"])
+                span.set_attribute("duration(seconds)", (dt.datetime.now() - start_time).total_seconds())
+                
         end_time = dt.datetime.now()
         duration = (end_time - start_time).total_seconds()
 
@@ -575,7 +559,8 @@ class FastGeneratorWithUpload(FastGenerator):
             "records_per_second": (num_suppliers + num_parts) / duration,
             "tenant_id": self.tenant_id,
             "postgres_inserted": self.use_postgres and not include_dirty_data,
-            "files_generated": ["suppliers.csv", "parts.csv"]
+            "files_generated": ["suppliers.csv", "parts.csv"],
+            "duration": duration
         }
 
         print(f"\n Performance Summary:")
@@ -587,33 +572,6 @@ class FastGeneratorWithUpload(FastGenerator):
         print(f"  Core files: {result['files_generated']}")
 
         return result
-
-    def inject_dirty_data_safe(self, data: List[Dict[str, Any]], data_type: str, anomaly_rate: float = 0.06):
-        """Safe dirty data injection that avoids FK violations for parts"""
-        dirty_data = data.copy()
-        num_anomalies = int(len(data) * anomaly_rate)
-        dirty_indices = set(random.sample(range(len(data)), num_anomalies))
-
-        print(f"Injecting {num_anomalies:,} anomalies into {data_type}...")
-
-        if data_type == "parts":
-            for idx in dirty_indices:
-                part = dirty_data[idx]
-                # NO invalid_supplier_id - only safe anomalies
-                anomaly_type = random.choice([
-                    "negative_cost", "wrong_uom", "future_timestamp"
-                ])
-
-                if anomaly_type == "negative_cost":
-                    part["unit_cost"] = -random.uniform(1.0, 100.0)
-                elif anomaly_type == "wrong_uom":
-                    part["uom"] = "INVALID"
-                elif anomaly_type == "future_timestamp":
-                    future_date = dt.datetime.now(
-                        dt.timezone.utc) + timedelta(days=random.randint(1, 30))
-                    part["source_timestamp"] = future_date.isoformat()
-
-        return dirty_data
 
     def _upload_core_files(self, local_dir):
         """Upload only the core CSV and Parquet files to S3"""
@@ -637,23 +595,36 @@ class FastGeneratorWithUpload(FastGenerator):
 
 
 if __name__ == "__main__":
-    # High-performance generation for showcase
-    generator = FastGeneratorWithUpload(
+
+    tracer = init_tracer("ingestion")
+    tenant_id = "tenant_acme"
+    num_parts = 100000
+    num_suppliers = 100000
+
+    generator = DataGeneratorWithUpload(
         seed=42,
-        tenant_id="tenant_acme",
-        auto_upload=True,  # Set to True to enable S3 upload
+        tenant_id=tenant_id,
+        auto_upload=False,  # Set to True to enable S3 upload
         s3_bucket="cdf-upload",
-        use_postgres=False   # Set to False to skip PostgreSQL
+        use_postgres=False,   # Set to False to skip PostgreSQL
+        tracer=tracer
     )
 
     try:
-        # Generate massive dataset quickly
-        result = generator.generate_full_dataset_fast(
-            num_suppliers=10000,
-            num_parts=10000,
-            include_dirty_data=True,
-            anomaly_rate=0.06
-        )
+        with generator.tracer.start_as_current_span("Suppliers + Parts Ingestion") as span:
+            result = generator.generate_full_dataset(
+                num_suppliers=num_suppliers,
+                num_parts=num_parts,
+                include_dirty_data=True,
+                anomaly_rate=0.06,
+            )
+            span.set_attribute("tenant", tenant_id)
+            span.set_attribute("rows for suppliers", num_suppliers)
+            span.set_attribute("rows for parts", num_parts)
+            span.set_attribute("duration(seconds)",
+                               round(result["duration"], 1))
+            span.set_attribute("records_per_second", int(
+                result["records_per_second"]))
 
         print(
             f"\nSUCCESS! Generated {result['suppliers_count']:,} suppliers + {result['parts_count']:,} parts")
