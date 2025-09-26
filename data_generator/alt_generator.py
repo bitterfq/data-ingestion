@@ -604,14 +604,14 @@ if __name__ == "__main__":
     generator = DataGeneratorWithUpload(
         seed=42,
         tenant_id=tenant_id,
-        auto_upload=False,  # Set to True to enable S3 upload
+        auto_upload=True,  # Set to True to enable S3 upload
         s3_bucket="cdf-upload",
         use_postgres=False,   # Set to False to skip PostgreSQL
         tracer=tracer
     )
 
     try:
-        with generator.tracer.start_as_current_span("Suppliers + Parts Ingestion") as span:
+        with generator.tracer.start_as_current_span("suppliers_parts_ingestion") as span:
             result = generator.generate_full_dataset(
                 num_suppliers=num_suppliers,
                 num_parts=num_parts,
