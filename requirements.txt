@@ -22,3 +22,4 @@ psycopg2-binary
 
 opentelemetry-api
 opentelemetry-sdk
+opentelemetry-exporter-otlp
