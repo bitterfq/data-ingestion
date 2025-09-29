@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import *
 from pyspark.sql.types import *
-from datetime import datetime
+from datetime import datetime, timezone
 from otel_setup import init_tracer
 
 class SupplyChainDataPipeline:
@@ -653,7 +653,9 @@ if __name__ == "__main__":
     pipeline = SupplyChainDataPipeline()
 
     try:
-        success = pipeline.run_pipeline("2025-09-26")
+        # utc time
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        success = pipeline.run_pipeline(today_str)
         exit_code = 0 if success else 1
     except Exception as e:
         print(f"Pipeline error: {e}")
