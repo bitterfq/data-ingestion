@@ -525,7 +525,7 @@ class SupplyChainDataPipeline:
         print(
             f"Starting supply chain data pipeline for {run_date}")
 
-        with self.tracer.start_as_current_span("spark_pipeline") as root:
+        with self.tracer.start_as_current_span("spark_pipeline", context=None) as root:
             root.set_attribute("run_date", run_date)
             try:
                 # 1. Read source data
