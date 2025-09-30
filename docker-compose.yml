@@ -1,8 +1,6 @@
 version: '3.8'
 
 services:
-
-
   # python service for data generation
   generator:
     build:
@@ -11,35 +9,14 @@ services:
     env_file: .env
     volumes:
       - ./data_generator/data:/app/data
-  postgres:
-    image: postgres:15
-    container_name: supply-chain-postgres
-    environment:
-      POSTGRES_DB: supply_chain
-      POSTGRES_USER: pipeline_user
-      POSTGRES_PASSWORD: pipeline_pass
-      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pipeline_user -d supply_chain"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: supply-chain-pgadmin
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@example.com
-      PGADMIN_DEFAULT_PASSWORD: admin
-    ports:
-      - "8080:80"
-    depends_on:
-      - postgres
-
-volumes:
-  postgres_data:
+  # infra cleanup service
+  #infra-cleanup:
+  #  build:
+  #    context: .
+  #    dockerfile: docker/Dockerfile.infra_cleanup
+  #  env_file: .env
+  #  volumes:
+  #    - ./infra_cleanup:/app/infra_cleanup
+  #  depends_on:
+  #    - generator
