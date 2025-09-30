@@ -589,9 +589,13 @@ class DataGeneratorWithUpload(DataGenerator):
         for filename in core_files:
             local_path = os.path.join(local_dir, filename)
             remote_path = f"processed/{self.tenant_id}/{filename.split('.')[0]}/{date_folder}/{run_id}/{filename}"
-            self.s3_client.upload_file(local_path, "cdf-raw", remote_path)
-
-
+            if os.path.exists(local_path):
+                try:
+                    self.s3_client.upload_file(local_path, "cdf-raw", remote_path)
+                except Exception as e:
+                    print(f"Error uploading {local_path} to S3: {e}")
+            else:
+                print(f"File not found, skipping upload: {local_path}")
 if __name__ == "__main__":
 
     tracer = init_tracer("ingestion")
