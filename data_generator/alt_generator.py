@@ -15,6 +15,7 @@ import multiprocessing as mp
 from concurrent.futures import ThreadPoolExecutor
 import decimal
 import json
+import pandas as pd
 import psycopg2
 import boto3
 import csv
@@ -339,20 +340,20 @@ class DataGenerator:
             chunk = data[i:i + chunk_size]
             df_chunk = pd.DataFrame(chunk)
 
+            # Ensure geo_coords is JSON string, not dict
             if 'geo_coords' in df_chunk.columns:
-                df_chunk['geo_lat'] = df_chunk['geo_coords'].apply(
-                    lambda x: x['lat'] if x else None)
-                df_chunk['geo_lon'] = df_chunk['geo_coords'].apply(
-                    lambda x: x['lon'] if x else None)
-                df_chunk = df_chunk.drop('geo_coords', axis=1)
+                df_chunk['geo_coords'] = df_chunk['geo_coords'].apply(
+                    lambda x: json.dumps(x) if isinstance(x, dict) else x
+                )
 
+            # Convert list columns to comma-separated strings
             for col in df_chunk.columns:
                 if df_chunk[col].dtype == 'object':
-                    sample_val = df_chunk[col].dropna(
-                    ).iloc[0] if not df_chunk[col].dropna().empty else None
+                    sample_val = df_chunk[col].dropna().iloc[0] if not df_chunk[col].dropna().empty else None
                     if isinstance(sample_val, list):
                         df_chunk[col] = df_chunk[col].apply(
-                            lambda x: ','.join(map(str, x)) if x else '')
+                            lambda x: ','.join(map(str, x)) if x else ''
+                        )
 
             dfs.append(df_chunk)
 
@@ -360,12 +361,11 @@ class DataGenerator:
         final_df.to_parquet(filename, compression='snappy',
                             row_group_size=100000, index=False)
 
-
 class DataGeneratorWithUpload(DataGenerator):
     """Data generator with S3 upload and PostgreSQL capability"""
 
     def __init__(self, seed=42, tenant_id="tenant_acme", auto_upload=True,
-                s3_bucket="cdf-upload", use_postgres=True, tracer=None):
+                s3_bucket="cdf-raw", use_postgres=True, tracer=None):
         super().__init__(seed, tenant_id)
         self.auto_upload = auto_upload
         self.s3_bucket = s3_bucket
@@ -496,7 +496,7 @@ class DataGeneratorWithUpload(DataGenerator):
                               include_dirty_data=True, anomaly_rate=0.06):
         """
         Generate large datasets optimized for speed
-        Output: suppliers.csv and parts.csv with dirty data mixed in
+        Output: suppliers.parquet and parts.parquet with dirty data mixed in
         """
         
         start_time = dt.datetime.now()
@@ -536,16 +536,22 @@ class DataGeneratorWithUpload(DataGenerator):
         os.makedirs(data_dir, exist_ok=True)
 
         print("Exporting final datasets...")
-        self.export_chunked_csv(
-            suppliers, os.path.join(data_dir, "suppliers.csv"))
-        self.export_chunked_csv(parts, os.path.join(data_dir, "parts.csv"))
+        #self.export_chunked_csv(
+        #    suppliers, os.path.join(data_dir, "suppliers.csv"))
+        #self.export_chunked_csv(parts, os.path.join(data_dir, "parts.csv"))
+
+        self.export_parquet(
+            suppliers, os.path.join(data_dir, "suppliers.parquet"))
+        self.export_parquet(
+            parts, os.path.join(data_dir, "parts.parquet"))
+        
 
         if self.auto_upload:
             with self.tracer.start_as_current_span("S3 Upload") as span:
                 print("Uploading core files to S3...")
                 self._upload_core_files(data_dir)
                 span.set_attribute("s3_bucket", self.s3_bucket)
-                span.set_attribute("uploaded_files", ["suppliers.csv", "parts.csv"])
+                span.set_attribute("uploaded_files", ["suppliers.parquet", "parts.parquet"])
                 span.set_attribute("duration(seconds)", (dt.datetime.now() - start_time).total_seconds())
                 
         end_time = dt.datetime.now()
@@ -559,7 +565,7 @@ class DataGeneratorWithUpload(DataGenerator):
             "records_per_second": (num_suppliers + num_parts) / duration,
             "tenant_id": self.tenant_id,
             "postgres_inserted": self.use_postgres and not include_dirty_data,
-            "files_generated": ["suppliers.csv", "parts.csv"],
+            "files_generated": ["suppliers.parquet", "parts.parquet"],
             "duration": duration
         }
 
@@ -575,23 +581,15 @@ class DataGeneratorWithUpload(DataGenerator):
 
     def _upload_core_files(self, local_dir):
         """Upload only the core CSV and Parquet files to S3"""
-        core_files = ["suppliers.csv", "parts.csv"]
+        core_files = ["suppliers.parquet", "parts.parquet"]
         utc_now = dt.datetime.now(dt.timezone.utc)
         run_id = utc_now.strftime("%Y%m%d_%H%M%S")
         date_folder = utc_now.strftime("%Y-%m-%d")
 
         for filename in core_files:
             local_path = os.path.join(local_dir, filename)
-            if os.path.exists(local_path):
-                remote_path = f"{self.tenant_id}/{date_folder}/{run_id}/{filename}"
-
-                try:
-                    self.s3_client.upload_file(
-                        local_path, self.s3_bucket, remote_path)
-                    print(
-                        f"  Uploaded {filename} -> s3://{self.s3_bucket}/{remote_path}")
-                except Exception as e:
-                    print(f"  Upload failed for {filename}: {e}")
+            remote_path = f"processed/{self.tenant_id}/{filename.split('.')[0]}/{date_folder}/{run_id}/{filename}"
+            self.s3_client.upload_file(local_path, "cdf-raw", remote_path)
 
 
 if __name__ == "__main__":
@@ -605,7 +603,7 @@ if __name__ == "__main__":
         seed=42,
         tenant_id=tenant_id,
         auto_upload=True,  # Set to True to enable S3 upload
-        s3_bucket="cdf-upload",
+        s3_bucket="cdf-raw",
         use_postgres=False,   # Set to False to skip PostgreSQL
         tracer=tracer
     )
