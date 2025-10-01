@@ -1,7 +1,7 @@
 # Data Ingestion Pipeline PoC
 
 ## Overview
-Enterprise-ready, multi-tenant data pipeline for ingesting and validating supplier and part data at scale. Supports both S3 and PostgreSQL as customer landing zones, with robust data quality validation, referential integrity, and modern lakehouse architecture.
+Enterprise-grade, multi-tenant supply chain data pipeline for ingesting, validating, and curating supplier and part data at scale. Supports both S3 and PostgreSQL as customer landing zones, with robust data quality validation, referential integrity, and modern lakehouse architecture (Iceberg + AWS Glue). Designed for batch and incremental workflows.
 
 ---
 
@@ -11,19 +11,27 @@ Enterprise-ready, multi-tenant data pipeline for ingesting and validating suppli
 data-ingestion/
 ├── data_generator/
 │   ├── generator.py
+│   ├── alt_generator.py
+│   ├── __init__.py
 │   └── data/                # Generated CSV/Parquet files
-│
-├── bridge_service/
-│   └── bridge_service.py
 │
 ├── utils/
 │   ├── spark_silver_pipeline.py
-│   └── s3_list.py
+│   ├── otel_setup.py
+│   ├── s3_list.py
+│   └── clean_infra.sh
+│
+├── tests/
+│   ├── test_generator.py
+│   └── pdf_compliance_test.py
 │
 ├── docs/
 │   ├── batch-pipeline-architecture.md
 │   ├── data_generator.md
 │   └── learnings.md
+│
+├── docker/
+│   └── Dockerfile.generator
 │
 ├── requirements.txt
 ├── docker-compose.yml
@@ -45,21 +53,21 @@ data-ingestion/
 
 ### Core Stack
 
+- **Data Generation**: Python (vectorized, high-performance, dirty data injection)
 - **Ingestion**: Airbyte (CSV/Parquet/PG connectors)
 - **Landing Zone**: S3 or PostgreSQL (customer-provided)
 - **Raw Zone**: S3 (`cdf-raw` bucket)
-- **Processing**: Apache Spark (validation, transformation)
+- **Processing**: Apache Spark (validation, transformation, referential integrity)
 - **Silver Zone**: Apache Iceberg tables in S3 (`cdf-silver` bucket)
 - **Catalog**: AWS Glue (Iceberg metadata, LlamaIndex integration)
-- **Orchestration**: (Optional) Apache Airflow
-- **Quality**: Built-in validation, referential integrity, and anomaly injection
+- **Quality**: Built-in validation, referential integrity, anomaly injection, PDF-compliant schema
 
 ---
 
 ## Data Contracts
 
-- **Suppliers**: 33 fields (risk metrics, certifications, geo-coords, compliance flags)
-- **Parts**: 23 fields (qualified suppliers, costs, lead times, FKs)
+- **Suppliers**: 33 fields (risk metrics, certifications, geo-coords as struct, compliance flags, etc.)
+- **Parts**: 23 fields (qualified suppliers, costs, lead times, FKs, etc.)
 - **Validation**: PK uniqueness, FK integrity, business rules, freshness checks
 - **Schema**: PDF-compliant with `geo_coords` as struct<lat:double,lon:double>
 
@@ -74,6 +82,8 @@ data-ingestion/
 - Complete audit trail and lineage tracking
 - Idempotent processing with safe reruns
 - UPSERT pattern for PostgreSQL operations
+- OpenTelemetry tracing for pipeline observability
+- High-performance generator (100k+ records in <2 minutes)
 
 ---
 
@@ -90,9 +100,10 @@ data-ingestion/
 
 ### Prerequisites
 - Python 3.8+
-- AWS credentials configured
+- AWS CLI & credentials configured
 - PostgreSQL (optional, for local testing)
 - Apache Spark 3.4+ with Iceberg support
+- Airbyte (for ingestion)
 
 ### Quick Start
 
@@ -104,13 +115,14 @@ data-ingestion/
 2. **Set up environment variables**
     ```bash
     cp .env.example .env
-    # Edit .env with your AWS credentials
+    # Edit .env with your AWS and PG credentials
     ```
 
 3. **Generate test data**
     ```bash
     cd data_generator
     python generator.py
+    # Or for high-performance: python alt_generator.py --num_suppliers 100000 --num_parts 100000
     ```
 
 4. **Run validation pipeline**
@@ -124,14 +136,19 @@ data-ingestion/
     python data_generator/generator.py
     ```
 
+6. **Clean up infrastructure**
+    ```bash
+    bash utils/clean_infra.sh
+    ```
+
 ---
 
 ## Known Issues
 
-- **Issue #1**: Double Write Bug - Records accumulate instead of replace on subsequent runs
-- **Issue #2**: S3 timestamp drift causes files to split across folders  
-- **Issue #3**: Hardcoded single-tenant paths prevent multi-tenant deployments
-- **Issue #4**: Schema corruption on Airbyte reruns - binary data type errors
+- **Double Write Bug**: Records accumulate instead of replace on subsequent runs
+- **S3 timestamp drift**: Files split across folders due to ingestion time
+- **Single-tenant paths**: Hardcoded paths limit multi-tenant deployments
+- **Airbyte schema drift**: Binary data type errors on reruns
 
 See GitHub Issues for detailed reproduction steps and proposed fixes.
 
@@ -165,3 +182,11 @@ POSTGRES_DB=supply_chain
 - [docs/batch-pipeline-architecture.md](docs/batch-pipeline-architecture.md) - Detailed architecture
 - [docs/data_generator.md](docs/data_generator.md) - Data generation specs
 - [docs/learnings.md](docs/learnings.md) - Implementation insights
+
+---
+
+## Testing
+
+- Unit tests: `pytest tests/`
+- PDF compliance: `python tests/pdf_compliance_test.py`
+- Generator tests: `python tests/test_generator.py`
