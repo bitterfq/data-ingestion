@@ -16,18 +16,10 @@ psycopg2-binary
 # Data lake & Spark pipeline
 pyspark==3.5.1
 
-# Data quality, testing, and validation
-pytest
 
 # Bridge service and HTTP utilities
 requests
 urllib3
-
-# Kafka integration (if needed for bridge service)
-kafka-python
-
-# MinIO (for local S3 emulation, optional)
-minio
 
 # OpenTelemetry tracing
 opentelemetry-api
