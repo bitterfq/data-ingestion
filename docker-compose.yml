@@ -1,6 +1,15 @@
 version: '3.8'
 
 services:
+
+  # OpenTelemetry Collector for receiving and exporting telemetry data
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    ports:
+      - "4318:4318"   # OTLP HTTP receiver
+
+
   # python service for data generation
   generator:
     build:
@@ -10,6 +19,7 @@ services:
     volumes:
       - ./data_generator/data:/app/data
 
+      
   # infra cleanup service
   #infra-cleanup:
   #  build:
