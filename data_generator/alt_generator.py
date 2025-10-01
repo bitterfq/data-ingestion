@@ -609,6 +609,14 @@ if __name__ == "__main__":
     parser.add_argument("--anomaly_rate", type=float, default=0.06, help="Dirty data anomaly rate")
     parser.add_argument("--no_dirty_data", action="store_true", help="Disable dirty data injection")
     args = parser.parse_args()
+    
+    # Validate arguments
+    if args.num_suppliers <= 0:
+        parser.error("--num_suppliers must be positive")
+    if args.num_parts <= 0:
+        parser.error("--num_parts must be positive")
+    if not (0.0 <= args.anomaly_rate <= 1.0):
+        parser.error("--anomaly_rate must be between 0.0 and 1.0")
 
     tracer = init_tracer("ingestion")
 
