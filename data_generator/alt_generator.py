@@ -17,6 +17,7 @@ import decimal
 import json
 import pandas as pd
 import psycopg2
+import argparse
 import boto3
 import csv
 from datetime import timedelta
@@ -596,37 +597,43 @@ class DataGeneratorWithUpload(DataGenerator):
                     print(f"Error uploading {local_path} to S3: {e}")
             else:
                 print(f"File not found, skipping upload: {local_path}")
+
 if __name__ == "__main__":
 
+    parser = argparse.ArgumentParser(description="High-performance supply chain data generator")
+    parser.add_argument("--num_suppliers", type=int, default=100000, help="Number of suppliers to generate")
+    parser.add_argument("--num_parts", type=int, default=100000, help="Number of parts to generate")
+    parser.add_argument("--tenant_id", type=str, default="tenant_acme", help="Tenant ID")
+    parser.add_argument("--no_upload", action="store_true", help="Disable S3 upload")
+    parser.add_argument("--no_postgres", action="store_true", help="Disable PostgreSQL insertion")
+    parser.add_argument("--anomaly_rate", type=float, default=0.06, help="Dirty data anomaly rate")
+    parser.add_argument("--no_dirty_data", action="store_true", help="Disable dirty data injection")
+    args = parser.parse_args()
+
     tracer = init_tracer("ingestion")
-    tenant_id = "tenant_acme"
-    num_parts = 100000
-    num_suppliers = 100000
 
     generator = DataGeneratorWithUpload(
         seed=42,
-        tenant_id=tenant_id,
-        auto_upload=True,  # Set to True to enable S3 upload
+        tenant_id=args.tenant_id,
+        auto_upload=not args.no_upload,
         s3_bucket="cdf-raw",
-        use_postgres=False,   # Set to False to skip PostgreSQL
+        use_postgres=not args.no_postgres,
         tracer=tracer
     )
 
     try:
         with generator.tracer.start_as_current_span("suppliers_parts_ingestion") as span:
             result = generator.generate_full_dataset(
-                num_suppliers=num_suppliers,
-                num_parts=num_parts,
-                include_dirty_data=True,
-                anomaly_rate=0.06,
+                num_suppliers=args.num_suppliers,
+                num_parts=args.num_parts,
+                include_dirty_data=not args.no_dirty_data,
+                anomaly_rate=args.anomaly_rate,
             )
-            span.set_attribute("tenant", tenant_id)
-            span.set_attribute("rows for suppliers", num_suppliers)
-            span.set_attribute("rows for parts", num_parts)
-            span.set_attribute("duration(seconds)",
-                               round(result["duration"], 1))
-            span.set_attribute("records_per_second", int(
-                result["records_per_second"]))
+            span.set_attribute("tenant", args.tenant_id)
+            span.set_attribute("rows for suppliers", args.num_suppliers)
+            span.set_attribute("rows for parts", args.num_parts)
+            span.set_attribute("duration(seconds)", round(result["duration"], 1))
+            span.set_attribute("records_per_second", int(result["records_per_second"]))
 
         print(
             f"\nSUCCESS! Generated {result['suppliers_count']:,} suppliers + {result['parts_count']:,} parts")
