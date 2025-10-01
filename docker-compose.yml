@@ -9,14 +9,18 @@ services:
     env_file: .env
     volumes:
       - ./data_generator/data:/app/data
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger-service:4318/v1/traces
+    depends_on:
+      - jaeger-service
 
-  # infra cleanup service
-  #infra-cleanup:
-  #  build:
-  #    context: .
-  #    dockerfile: docker/Dockerfile.infra_cleanup
-  #  env_file: .env
-  #  volumes:
-  #    - ./infra_cleanup:/app/infra_cleanup
-  #  depends_on:
-  #    - generator
+  # Jaeger for tracing
+  jaeger-service:
+    image: jaegertracing/all-in-one:1.54
+    container_name: jaeger-service
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"   # UI
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP
