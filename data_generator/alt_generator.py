@@ -609,7 +609,7 @@ if __name__ == "__main__":
     parser.add_argument("--anomaly_rate", type=float, default=0.06, help="Dirty data anomaly rate")
     parser.add_argument("--no_dirty_data", action="store_true", help="Disable dirty data injection")
     args = parser.parse_args()
-    
+
     # Validate arguments
     if args.num_suppliers <= 0:
         parser.error("--num_suppliers must be positive")
@@ -644,11 +644,14 @@ if __name__ == "__main__":
             span.set_attribute("records_per_second", int(result["records_per_second"]))
 
         print(
-            f"\nSUCCESS! Generated {result['suppliers_count']:,} suppliers + {result['parts_count']:,} parts")
-        print(
-            f"Performance: {result['records_per_second']:,.0f} records/second")
+            f"\nSUCCESS! Generated {result['suppliers_count']:,} suppliers + {result['parts_count']:,} parts"
+        )
+        print(f"Performance: {result['records_per_second']:,.0f} records/second")
         print(f"PostgreSQL inserted: {result['postgres_inserted']}")
         print(f"Files ready for pipeline testing: {result['files_generated']}")
+
+        jaeger_url = "http://localhost:16686"
+        print(f"\n SUCCESS! Traces available in Jaeger UI: {jaeger_url}")
 
     finally:
         generator.close_connections()
