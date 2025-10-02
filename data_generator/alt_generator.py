@@ -30,7 +30,7 @@ import random
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from utils.otel_setup import init_tracer
+# from utils.otel_setup import init_tracer
 
 
 
@@ -371,7 +371,7 @@ class DataGeneratorWithUpload(DataGenerator):
         self.auto_upload = auto_upload
         self.s3_bucket = s3_bucket
         self.use_postgres = use_postgres
-        self.tracer = tracer or init_tracer("ingestion")
+        # self.tracer = tracer or init_tracer("ingestion")
 
         if auto_upload:
             try:
@@ -505,14 +505,14 @@ class DataGeneratorWithUpload(DataGenerator):
             f"Starting generation: {num_suppliers:,} suppliers + {num_parts:,} parts")
 
         
-        with self.tracer.start_as_current_span("Suppliers Ingestion") as span:
-            suppliers = self.generate_suppliers(num_suppliers)
-            supplier_ids = [s["supplier_id"] for s in suppliers]
-            span.set_attribute("rows", num_suppliers)
+        # with self.tracer.start_as_current_span("Suppliers Ingestion") as span:
+        suppliers = self.generate_suppliers(num_suppliers)
+        supplier_ids = [s["supplier_id"] for s in suppliers]
+        # span.set_attribute("rows", num_suppliers)
         
-        with self.tracer.start_as_current_span("Parts Ingestion") as span:
-            parts = self.generate_parts(num_parts, supplier_ids)
-            span.set_attribute("rows", num_parts)
+        # with self.tracer.start_as_current_span("Parts Ingestion") as span:
+        parts = self.generate_parts(num_parts, supplier_ids)
+        # span.set_attribute("rows", num_parts)
 
         # skip tracing for pg insert
         if self.use_postgres and not include_dirty_data:
@@ -521,17 +521,17 @@ class DataGeneratorWithUpload(DataGenerator):
             self.insert_to_postgres(parts, "parts")
 
         if include_dirty_data:
-            with self.tracer.start_as_current_span("Dirty Data") as span:
-                print("Injecting dirty data for pipeline testing...")
-                suppliers = self.inject_dirty_data(
-                    suppliers, "suppliers", anomaly_rate)
-                parts_dirty_safe = self.inject_dirty_data_safe(
-                    parts, "parts", anomaly_rate)
-                parts = parts_dirty_safe
+            # with self.tracer.start_as_current_span("Dirty Data") as span:
+            print("Injecting dirty data for pipeline testing...")
+            suppliers = self.inject_dirty_data(
+                suppliers, "suppliers", anomaly_rate)
+            parts_dirty_safe = self.inject_dirty_data_safe(
+                parts, "parts", anomaly_rate)
+            parts = parts_dirty_safe
                 
-                span.set_attribute("anomaly_rate", anomaly_rate)
-                span.set_attribute("suppliers_with_anomalies", len(suppliers)*anomaly_rate)
-                span.set_attribute("parts_with_anomalies", len(parts)*anomaly_rate)
+            # span.set_attribute("anomaly_rate", anomaly_rate)
+            # span.set_attribute("suppliers_with_anomalies", len(suppliers)*anomaly_rate)
+            # span.set_attribute("parts_with_anomalies", len(parts)*anomaly_rate)
 
         data_dir = os.path.join(os.path.dirname(__file__), "data")
         os.makedirs(data_dir, exist_ok=True)
@@ -548,12 +548,12 @@ class DataGeneratorWithUpload(DataGenerator):
         
 
         if self.auto_upload:
-            with self.tracer.start_as_current_span("S3 Upload") as span:
-                print("Uploading core files to S3...")
-                self._upload_core_files(data_dir)
-                span.set_attribute("s3_bucket", self.s3_bucket)
-                span.set_attribute("uploaded_files", ["suppliers.parquet", "parts.parquet"])
-                span.set_attribute("duration(seconds)", (dt.datetime.now() - start_time).total_seconds())
+            # with self.tracer.start_as_current_span("S3 Upload") as span:
+            print("Uploading core files to S3...")
+            self._upload_core_files(data_dir)
+            # span.set_attribute("s3_bucket", self.s3_bucket)
+            # span.set_attribute("uploaded_files", ["suppliers.parquet", "parts.parquet"])
+            # span.set_attribute("duration(seconds)", (dt.datetime.now() - start_time).total_seconds())
                 
         end_time = dt.datetime.now()
         duration = (end_time - start_time).total_seconds()
@@ -618,7 +618,7 @@ if __name__ == "__main__":
     if not (0.0 <= args.anomaly_rate <= 1.0):
         parser.error("--anomaly_rate must be between 0.0 and 1.0")
 
-    tracer = init_tracer("ingestion")
+    # tracer = init_tracer("ingestion")
 
     generator = DataGeneratorWithUpload(
         seed=42,
@@ -626,22 +626,22 @@ if __name__ == "__main__":
         auto_upload=not args.no_upload,
         s3_bucket="cdf-raw",
         use_postgres=not args.no_postgres,
-        tracer=tracer
+        # tracer=tracer
     )
 
     try:
-        with generator.tracer.start_as_current_span("suppliers_parts_ingestion") as span:
-            result = generator.generate_full_dataset(
-                num_suppliers=args.num_suppliers,
-                num_parts=args.num_parts,
-                include_dirty_data=not args.no_dirty_data,
-                anomaly_rate=args.anomaly_rate,
-            )
-            span.set_attribute("tenant", args.tenant_id)
-            span.set_attribute("rows for suppliers", args.num_suppliers)
-            span.set_attribute("rows for parts", args.num_parts)
-            span.set_attribute("duration(seconds)", round(result["duration"], 1))
-            span.set_attribute("records_per_second", int(result["records_per_second"]))
+        # with generator.tracer.start_as_current_span("suppliers_parts_ingestion") as span:
+        result = generator.generate_full_dataset(
+            num_suppliers=args.num_suppliers,
+            num_parts=args.num_parts,
+            include_dirty_data=not args.no_dirty_data,
+            anomaly_rate=args.anomaly_rate,
+        )
+        # span.set_attribute("tenant", args.tenant_id)
+        # span.set_attribute("rows for suppliers", args.num_suppliers)
+        # span.set_attribute("rows for parts", args.num_parts)
+        # span.set_attribute("duration(seconds)", round(result["duration"], 1))
+        # span.set_attribute("records_per_second", int(result["records_per_second"]))
 
         print(
             f"\nSUCCESS! Generated {result['suppliers_count']:,} suppliers + {result['parts_count']:,} parts"
