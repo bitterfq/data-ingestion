@@ -650,8 +650,8 @@ if __name__ == "__main__":
         print(f"PostgreSQL inserted: {result['postgres_inserted']}")
         print(f"Files ready for pipeline testing: {result['files_generated']}")
 
-        jaeger_url = "http://localhost:16686"
-        print(f"\n SUCCESS! Traces available in Jaeger UI: {jaeger_url}")
+        #jaeger_url = "http://localhost:16686"
+        #print(f"\n SUCCESS! Traces available in Jaeger UI: {jaeger_url}")
 
     finally:
         generator.close_connections()
