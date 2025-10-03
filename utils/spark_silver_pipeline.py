@@ -18,7 +18,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import *
 from pyspark.sql.types import *
 from datetime import datetime, timezone
-from otel_setup import init_tracer
+# from otel_setup import init_tracer
 
 class SupplyChainDataPipeline:
     """
@@ -68,7 +68,7 @@ class SupplyChainDataPipeline:
         self.spark.sparkContext.setLogLevel("ERROR")
         
         # OTEL tracing setup
-        self.tracer = init_tracer("supply_chain_pipeline")
+        # self.tracer = init_tracer("supply_chain_pipeline")
         print(f"Spark session initialized - Warehouse: {self.warehouse_path}")
 
     def read_source_data(self, run_date="2025-09-14"):
@@ -79,67 +79,67 @@ class SupplyChainDataPipeline:
         # ---------- Suppliers ----------
         suppliers_path = f"s3a://cdf-raw/processed/tenant_acme/suppliers/{run_date}/*/suppliers*.parquet*"
         try:
-            with self.tracer.start_as_current_span("read_suppliers") as rs:
-                rs.set_attribute("suppliers_path", suppliers_path)
-                suppliers_df = self.spark.read.parquet(suppliers_path)
+            # with self.tracer.start_as_current_span("read_suppliers") as rs:
+            #     rs.set_attribute("suppliers_path", suppliers_path)
+            suppliers_df = self.spark.read.parquet(suppliers_path)
 
-                # Drop Airbyte metadata columns
-                airbyte_cols = ["_airbyte_raw_id", "_airbyte_extracted_at",
-                                "_airbyte_meta", "_airbyte_generation_id",
-                                "_ab_source_file_url", "_ab_source_file_last_modified"]
+            # Drop Airbyte metadata columns
+            airbyte_cols = ["_airbyte_raw_id", "_airbyte_extracted_at",
+                            "_airbyte_meta", "_airbyte_generation_id",
+                            "_ab_source_file_url", "_ab_source_file_last_modified"]
 
-                for col_name in airbyte_cols:
-                    if col_name in suppliers_df.columns:
-                        suppliers_df = suppliers_df.drop(col_name)
+            for col_name in airbyte_cols:
+                if col_name in suppliers_df.columns:
+                    suppliers_df = suppliers_df.drop(col_name)
 
-                # Detect and fix column swap from Postgres source
-                sample = suppliers_df.select("tenant_id").limit(10).collect()
-                swap_detected = False
-                
-                for row in sample:
-                    if row["tenant_id"] and row["tenant_id"].startswith("S"):
-                        swap_detected = True
-                        print("WARNING: Detected Postgres column swap in suppliers - fixing...")
-                        break
+            # Detect and fix column swap from Postgres source
+            sample = suppliers_df.select("tenant_id").limit(10).collect()
+            swap_detected = False
+            
+            for row in sample:
+                if row["tenant_id"] and row["tenant_id"].startswith("S"):
+                    swap_detected = True
+                    print("WARNING: Detected Postgres column swap in suppliers - fixing...")
+                    break
 
-                if swap_detected:
-                    suppliers_df = suppliers_df \
-                        .withColumnRenamed("tenant_id", "supplier_code_temp") \
-                        .withColumnRenamed("supplier_code", "tenant_id") \
-                        .withColumnRenamed("supplier_code_temp", "supplier_code")
+            if swap_detected:
+                suppliers_df = suppliers_df \
+                    .withColumnRenamed("tenant_id", "supplier_code_temp") \
+                    .withColumnRenamed("supplier_code", "tenant_id") \
+                    .withColumnRenamed("supplier_code_temp", "supplier_code")
 
-                rs.set_attribute("swap_detected", swap_detected)
+            # rs.set_attribute("swap_detected", swap_detected)
 
-                # Cast numeric fields to PDF-compliant schema
-                cast_map = {
-                    "risk_score": DoubleType(),
-                    "on_time_delivery_rate": DoubleType(),
-                    "defect_rate_ppm": IntegerType(),
-                    "capacity_units_per_week": IntegerType(),
-                    "lead_time_days_avg": IntegerType(),
-                    "lead_time_days_p95": IntegerType(),
-                }
-                for col_name, dtype in cast_map.items():
-                    if col_name in suppliers_df.columns:
-                        suppliers_df = suppliers_df.withColumn(
-                            col_name, col(col_name).cast(dtype))
+            # Cast numeric fields to PDF-compliant schema
+            cast_map = {
+                "risk_score": DoubleType(),
+                "on_time_delivery_rate": DoubleType(),
+                "defect_rate_ppm": IntegerType(),
+                "capacity_units_per_week": IntegerType(),
+                "lead_time_days_avg": IntegerType(),
+                "lead_time_days_p95": IntegerType(),
+            }
+            for col_name, dtype in cast_map.items():
+                if col_name in suppliers_df.columns:
+                    suppliers_df = suppliers_df.withColumn(
+                        col_name, col(col_name).cast(dtype))
 
-                supplier_count = suppliers_df.count()
-                rs.set_attribute("suppliers_read", supplier_count)
-                print(f"Suppliers loaded: {supplier_count:,}")
+            supplier_count = suppliers_df.count()
+            # rs.set_attribute("suppliers_read", supplier_count)
+            print(f"Suppliers loaded: {supplier_count:,}")
 
         except Exception as e:
-            from opentelemetry import trace as _trace
-            _trace.get_current_span().record_exception(e)
+            # from opentelemetry import trace as _trace
+            # _trace.get_current_span().record_exception(e)
             print(f"Failed to read suppliers: {str(e)[:]}...")
             suppliers_df = None
 
         # ---------- Parts ----------
         parts_path = f"s3a://cdf-raw/processed/tenant_acme/parts/{run_date}/*/parts*.parquet*"
         try:
-            with self.tracer.start_as_current_span("read_parts") as rp:
-                rp.set_attribute("parts_path", parts_path)
-                parts_df = self.spark.read.parquet(parts_path)
+            # with self.tracer.start_as_current_span("read_parts") as rp:
+            #     rp.set_attribute("parts_path", parts_path)
+            parts_df = self.spark.read.parquet(parts_path)
 
             # Drop Airbyte metadata columns
             for col_name in airbyte_cols:
@@ -163,7 +163,7 @@ class SupplyChainDataPipeline:
                         .withColumnRenamed("part_number", "tenant_id") \
                         .withColumnRenamed("part_number_temp", "part_number")
                 
-                rp.set_attribute("swap_detected", swap_detected)
+                # rp.set_attribute("swap_detected", swap_detected)
                 
                 # Cast numeric fields to PDF-compliant schema
                 cast_map = {
@@ -178,17 +178,17 @@ class SupplyChainDataPipeline:
                             col_name, col(col_name).cast(dtype))
 
                 parts_count = parts_df.count()
-                rp.set_attribute("parts_read", parts_count)
+                # rp.set_attribute("parts_read", parts_count)
                 print(f"Parts loaded: {parts_count:,}")
 
         except Exception as e:
-            from opentelemetry import trace as _trace
-            _trace.get_current_span().record_exception(e)
+            # from opentelemetry import trace as _trace
+            # _trace.get_current_span().record_exception(e)
             print(f"Failed to read parts: {str(e)[:100]}...")
             parts_df = None
 
         return suppliers_df, parts_df
-
+    
     def validate_suppliers(self, df):
         """Apply comprehensive supplier validation per PDF requirements."""
         print("Validating suppliers...")
@@ -433,227 +433,199 @@ class SupplyChainDataPipeline:
         """)
 
         print("Iceberg tables created")
-
+            
     def write_to_iceberg(self, suppliers_df, parts_df=None):
         """Write ONLY VALID records to Iceberg for clean showcase metrics."""
         print("Writing only valid records to Iceberg tables...")
-        with self.tracer.start_as_current_span("write_suppliers_to_iceberg") as ws:
-            # Filter to valid suppliers only
-            valid_suppliers = suppliers_df.filter(col("is_valid") == True)
+        # with self.tracer.start_as_current_span("write_suppliers_to_iceberg") as ws:
+        # Filter to valid suppliers only
+        valid_suppliers = suppliers_df.filter(col("is_valid") == True)
+        
+        suppliers_final = valid_suppliers.select(
+            "supplier_id", "supplier_code", "tenant_id", "legal_name",
+            "dba_name", "country", "region", "address_line1", "address_line2",
+            "city", "state", "postal_code", "contact_email", "contact_phone",
+            "preferred_currency", "incoterms",
+            col("lead_time_days_avg").cast("int"),
+            col("lead_time_days_p95").cast("int"),
+            col("on_time_delivery_rate").cast("double"),
+            col("defect_rate_ppm").cast("int"),
+            col("capacity_units_per_week").cast("int"),
+            col("risk_score").cast("double"),
+            "financial_risk_tier", "certifications", "compliance_flags",
+            "approved_status", "contracts", "terms_version",
+
+            when(col("data_source").contains("lat") & col("data_source").contains("lon"),
+                struct(
+                    regexp_extract(col("data_source"), r'"lat":\s*([-\d.]+)', 1).cast("double").alias("lat"),
+                    regexp_extract(col("data_source"), r'"lon":\s*([-\d.]+)', 1).cast("double").alias("lon")
+                )
+            ).when(col("geo_coords").isNotNull() & (col("geo_coords") != "") & ~col("geo_coords").contains("null"),
+                struct(
+                    get_json_object(col("geo_coords"), "$.lat").cast("double").alias("lat"),
+                    get_json_object(col("geo_coords"), "$.lon").cast("double").alias("lon")
+                )
+            ).otherwise(
+                struct(lit(None).cast("double").alias("lat"),
+                       lit(None).cast("double").alias("lon"))
+            ).alias("geo_coords"),
+
+            lit("synthetic.v1").alias("data_source"),
+            col("source_timestamp").cast("timestamp"),
+            current_timestamp().alias("ingestion_timestamp"),
+            "schema_version",
+            "dq_violations", "is_valid", "dq_timestamp"
+        ).coalesce(2)
+
+        valid_count = suppliers_final.count()
+        # ws.set_attribute("valid_suppliers_written", valid_count)
+        # ws.set_attribute("table", "glue_catalog.supply_chain.dim_suppliers_v1")
+        suppliers_final.writeTo("glue_catalog.supply_chain.dim_suppliers_v1").append()
+        print(f"Suppliers written to Iceberg: {valid_count:,} valid records only")
+
+        if parts_df is not None:
+            # with self.tracer.start_as_current_span("write_parts_to_iceberg") as wp:
+            valid_parts = parts_df.filter(col("is_valid") == True)
             
-            suppliers_final = valid_suppliers.select(
-                "supplier_id", "supplier_code", "tenant_id", "legal_name",
-                "dba_name", "country", "region", "address_line1", "address_line2",
-                "city", "state", "postal_code", "contact_email", "contact_phone",
-                "preferred_currency", "incoterms",
+            parts_final = valid_parts.select(
+                "part_id", "tenant_id", "part_number", "description", "category",
+                "lifecycle_status", "uom", "spec_hash", "bom_compatibility",
+                "default_supplier_id", "qualified_supplier_ids",
+                col("unit_cost").cast("decimal(18,6)"), col("moq").cast("int"),
                 col("lead_time_days_avg").cast("int"),
                 col("lead_time_days_p95").cast("int"),
-                col("on_time_delivery_rate").cast("double"),
-                col("defect_rate_ppm").cast("int"),
-                col("capacity_units_per_week").cast("int"),
-                col("risk_score").cast("double"),
-                "financial_risk_tier", "certifications", "compliance_flags",
-                "approved_status", "contracts", "terms_version",
-
-                # Extract geo coordinates from wherever they actually are
-                when(col("data_source").contains("lat") & col("data_source").contains("lon"),
-                    # Geo data is wrongly in data_source field - extract it
-                    struct(
-                    regexp_extract(
-                        col("data_source"), r'"lat":\s*([-\d.]+)', 1).cast("double").alias("lat"),
-                    regexp_extract(
-                        col("data_source"), r'"lon":\s*([-\d.]+)', 1).cast("double").alias("lon")
-                )
-                ).when(col("geo_coords").isNotNull() & (col("geo_coords") != "") & ~col("geo_coords").contains("null"),
-                    # Geo data is in correct geo_coords field
-                    struct(
-                    get_json_object(col("geo_coords"), "$.lat").cast(
-                        "double").alias("lat"),
-                    get_json_object(col("geo_coords"), "$.lon").cast(
-                        "double").alias("lon")
-                )
-                ).otherwise(
-                    # No geo data found - create null struct
-                    struct(lit(None).cast("double").alias("lat"),
-                        lit(None).cast("double").alias("lon"))
-                ).alias("geo_coords"),
-
-                # data_source should always be the literal string
+                "quality_grade", "compliance_flags", "hazard_class", "last_price_change",
                 lit("synthetic.v1").alias("data_source"),
                 col("source_timestamp").cast("timestamp"),
-                current_timestamp().alias("ingestion_timestamp"),
-                "schema_version",
+                current_timestamp().alias("ingestion_timestamp"), "schema_version",
                 "dq_violations", "is_valid", "dq_timestamp"
             ).coalesce(2)
 
-            valid_count = suppliers_final.count()
-            ws.set_attribute("valid_suppliers_written", valid_count)
-            ws.set_attribute(
-                "table", "glue_catalog.supply_chain.dim_suppliers_v1")
-            suppliers_final.writeTo("glue_catalog.supply_chain.dim_suppliers_v1").append()
-            print(f"Suppliers written to Iceberg: {valid_count:,} valid records only")
-
-        if parts_df is not None:
-            with self.tracer.start_as_current_span("write_parts_to_iceberg") as wp:
-                # Filter to valid parts only
-                valid_parts = parts_df.filter(col("is_valid") == True)
-                
-                parts_final = valid_parts.select(
-                    "part_id", "tenant_id", "part_number", "description", "category",
-                    "lifecycle_status", "uom", "spec_hash", "bom_compatibility",
-                    "default_supplier_id", "qualified_supplier_ids",
-                    col("unit_cost").cast("decimal(18,6)"), col("moq").cast("int"),
-                    col("lead_time_days_avg").cast("int"),
-                    col("lead_time_days_p95").cast("int"),
-                    "quality_grade", "compliance_flags", "hazard_class", "last_price_change",
-                    lit("synthetic.v1").alias("data_source"),
-                    col("source_timestamp").cast("timestamp"),
-                    current_timestamp().alias("ingestion_timestamp"), "schema_version",
-                    "dq_violations", "is_valid", "dq_timestamp"
-                ).coalesce(2)
-
-                valid_parts_count = parts_final.count()
-                wp.set_attribute("valid_parts_written", valid_parts_count)
-                wp.set_attribute(
-                    "table", "glue_catalog.supply_chain.dim_parts_v1")
-                parts_final.writeTo("glue_catalog.supply_chain.dim_parts_v1").append()
-                print(f"Parts written to Iceberg: {valid_parts_count:,} valid records only")
+            valid_parts_count = parts_final.count()
+            # wp.set_attribute("valid_parts_written", valid_parts_count)
+            # wp.set_attribute("table", "glue_catalog.supply_chain.dim_parts_v1")
+            parts_final.writeTo("glue_catalog.supply_chain.dim_parts_v1").append()
+            print(f"Parts written to Iceberg: {valid_parts_count:,} valid records only")
     
     def run_pipeline(self, run_date="2025-09-14"):
         """Execute complete PDF-compliant data quality pipeline."""
         start_time = datetime.now()
-        print(
-            f"Starting supply chain data pipeline for {run_date}")
+        print(f"Starting supply chain data pipeline for {run_date}")
 
-        with self.tracer.start_as_current_span("spark_pipeline", context=None) as root:
-            root.set_attribute("run_date", run_date)
-            try:
-                # 1. Read source data
-                with self.tracer.start_as_current_span("read_source_data") as s:
-                    s.set_attribute("raw_prefix", f"s3a://cdf-raw/processed/tenant_acme/*/{run_date}")
-                    suppliers_df, parts_df = self.read_source_data(run_date)
-                    s.set_attribute("has_suppliers", suppliers_df is not None)
-                    s.set_attribute("has_parts", parts_df is not None)
+        # with self.tracer.start_as_current_span("spark_pipeline", context=None) as root:
+        # root.set_attribute("run_date", run_date)
+        try:
+            # 1. Read source data
+            # with self.tracer.start_as_current_span("read_source_data") as s:
+            suppliers_df, parts_df = self.read_source_data(run_date)
+            # s.set_attribute("has_suppliers", suppliers_df is not None)
+            # s.set_attribute("has_parts", parts_df is not None)
 
-                    if suppliers_df is None:
-                        root.set_attribute("aborted", True)
-                        print("Pipeline aborted - no supplier data")
-                        return False
+            if suppliers_df is None:
+                # root.set_attribute("aborted", True)
+                print("Pipeline aborted - no supplier data")
+                return False
 
-                # 2. Create PDF-compliant Iceberg tables
-                with self.tracer.start_as_current_span("create_iceberg_tables") as c:
-                    self.create_iceberg_tables()
+            # 2. Create PDF-compliant Iceberg tables
+            # with self.tracer.start_as_current_span("create_iceberg_tables") as c:
+            self.create_iceberg_tables()
 
-                # 3. Validate suppliers
-                with self.tracer.start_as_current_span("validate_suppliers") as v:
-                    validated_suppliers = self.validate_suppliers(suppliers_df)
-                    total = validated_suppliers.count()
-                    valid = validated_suppliers.filter(col("is_valid")).count()
-                    v.set_attribute("supplier_total", total)
-                    v.set_attribute("supplier_valid", valid)
-                    v.set_attribute("supplier_pass_rate", (valid / total * 100) if total > 0 else 0)
+            # 3. Validate suppliers
+            # with self.tracer.start_as_current_span("validate_suppliers") as v:
+            validated_suppliers = self.validate_suppliers(suppliers_df)
+            total = validated_suppliers.count()
+            valid = validated_suppliers.filter(col("is_valid")).count()
+            # v.set_attribute("supplier_total", total)
+            # v.set_attribute("supplier_valid", valid)
+            # v.set_attribute("supplier_pass_rate", (valid / total * 100) if total > 0 else 0)
 
-                # 4. Handle parts if available
-                if parts_df is not None:
-                    with self.tracer.start_as_current_span("validate_parts") as p:
-                        valid_supplier_ids = (
-                            validated_suppliers
-                            .filter(col("is_valid"))
-                            .select("supplier_id")
-                            .rdd.map(lambda row: row[0])
-                            .collect()
-                        )
-                        p.set_attribute("supplier_ids_for_fk_checks", len(valid_supplier_ids))
-                        print(
-                            f"Valid suppliers for FK checks: {len(valid_supplier_ids):,}")
-                        validated_parts = self.validate_parts(
-                            parts_df, valid_supplier_ids)
-                        total = validated_parts.count()
-                        valid_p = validated_parts.filter(col("is_valid")).count()
-                        p.set_attribute("parts_total", total)
-                        p.set_attribute("parts_valid", valid_p)
-                        p.set_attribute("parts_pass_rate", (valid_p / total * 100) if total > 0 else 0)
-                else:
-                    validated_parts = None
+            # 4. Handle parts if available
+            if parts_df is not None:
+                # with self.tracer.start_as_current_span("validate_parts") as p:
+                valid_supplier_ids = (
+                    validated_suppliers
+                    .filter(col("is_valid"))
+                    .select("supplier_id")
+                    .rdd.map(lambda row: row[0])
+                    .collect()
+                )
+                print(f"Valid suppliers for FK checks: {len(valid_supplier_ids):,}")
+                validated_parts = self.validate_parts(parts_df, valid_supplier_ids)
+                total = validated_parts.count()
+                valid_p = validated_parts.filter(col("is_valid")).count()
+                # p.set_attribute("parts_total", total)
+                # p.set_attribute("parts_valid", valid_p)
+                # p.set_attribute("parts_pass_rate", (valid_p / total * 100) if total > 0 else 0)
+            else:
+                validated_parts = None
 
-                # 5. Write to Iceberg with PDF-compliant schema
-                with self.tracer.start_as_current_span("write_to_iceberg") as w:
-                    self.write_to_iceberg(validated_suppliers, validated_parts)
-                    w.set_attribute("tables", "dim_suppliers_v1, dim_parts_v1")
+            # 5. Write to Iceberg
+            # with self.tracer.start_as_current_span("write_to_iceberg") as w:
+            self.write_to_iceberg(validated_suppliers, validated_parts)
+            # w.set_attribute("tables", "dim_suppliers_v1, dim_parts_v1")
 
-                # 6. Pipeline summary
-                elapsed = datetime.now() - start_time
-                root.set_attribute("elapsed_seconds", elapsed.total_seconds())
-                root.set_attribute("success", True)
-                
-                supplier_stats = validated_suppliers.agg(
+            # 6. Pipeline summary
+            elapsed = datetime.now() - start_time
+            # root.set_attribute("elapsed_seconds", elapsed.total_seconds())
+            # root.set_attribute("success", True)
+            
+            supplier_stats = validated_suppliers.agg(
+                count("*").alias("total"),
+                sum(when(col("is_valid"), 1).otherwise(0)).alias("valid")
+            ).collect()[0]
+
+            print(f"\nPipeline Summary:")
+            print(f"  Runtime: {elapsed.total_seconds():.1f} seconds")
+            print(f"  Suppliers: {supplier_stats['valid']:,}/{supplier_stats['total']:,} valid")
+
+            if validated_parts is not None:
+                parts_stats = validated_parts.agg(
                     count("*").alias("total"),
                     sum(when(col("is_valid"), 1).otherwise(0)).alias("valid")
                 ).collect()[0]
+                print(f"  Parts: {parts_stats['valid']:,}/{parts_stats['total']:,} valid")
 
-                print(f"\nPipeline Summary:")
-                print(f"  Runtime: {elapsed.total_seconds():.1f} seconds")
-                print(
-                    f"  Suppliers: {supplier_stats['valid']:,}/{supplier_stats['total']:,} valid")
+                overall_pass_rate = ((supplier_stats['valid'] + parts_stats['valid']) /
+                                    (supplier_stats['total'] + parts_stats['total'])) * 100
+                print(f"  Overall pass rate: {overall_pass_rate:.1f}%")
 
-                if validated_parts is not None:
-                    parts_stats = validated_parts.agg(
-                        count("*").alias("total"),
-                        sum(when(col("is_valid"), 1).otherwise(0)).alias("valid")
-                    ).collect()[0]
-                    print(
-                        f"  Parts: {parts_stats['valid']:,}/{parts_stats['total']:,} valid")
+            # Verify PDF compliance
+            print("\nPDF Compliance Verification:")
+            supplier_count = self.spark.sql(
+                "SELECT COUNT(*) as count FROM glue_catalog.supply_chain.dim_suppliers_v1").collect()[0]['count']
+            print(f"  Suppliers in Iceberg: {supplier_count:,}")
 
-                    overall_pass_rate = ((supplier_stats['valid'] + parts_stats['valid']) /
-                                        (supplier_stats['total'] + parts_stats['total'])) * 100
-                    print(f"  Overall pass rate: {overall_pass_rate:.1f}%")
-                    #print(
-                    #    f"  Target: 99% pass rate - {'PASS' if overall_pass_rate >= 99.0 else 'FAIL'}")
+            supplier_schema = self.spark.sql(
+                "DESCRIBE glue_catalog.supply_chain.dim_suppliers_v1").collect()
 
-                # Verify PDF compliance
-                print("\nPDF Compliance Verification:")
-                supplier_count = self.spark.sql(
-                    "SELECT COUNT(*) as count FROM glue_catalog.supply_chain.dim_suppliers_v1").collect()[0]['count']
-                print(f"  Suppliers in Iceberg: {supplier_count:,}")
+            has_geo_coords = any("geo_coords" in str(row) and "struct" in str(row) for row in supplier_schema)
+            print(f"  geo_coords struct field present: {has_geo_coords}")
 
-                # Check for geo_coords struct field
-                supplier_schema = self.spark.sql(
-                    "DESCRIBE glue_catalog.supply_chain.dim_suppliers_v1").collect()
+            if validated_parts is not None:
+                parts_count = self.spark.sql(
+                    "SELECT COUNT(*) as count FROM glue_catalog.supply_chain.dim_parts_v1").collect()[0]['count']
+                print(f"  Parts in Iceberg: {parts_count:,}")
 
-                has_geo_coords = any("geo_coords" in str(
-                    row) and "struct" in str(row) for row in supplier_schema)
-                print(f"  geo_coords struct field present: {has_geo_coords}")
+            print(f"  PDF Compliance: {'ACHIEVED' if has_geo_coords else 'FAILED'}")
 
-                if validated_parts is not None:
-                    parts_count = self.spark.sql(
-                        "SELECT COUNT(*) as count FROM glue_catalog.supply_chain.dim_parts_v1").collect()[0]['count']
-                    print(f"  Parts in Iceberg: {parts_count:,}")
+            return True
 
-                print(
-                    f"  PDF Compliance: {'ACHIEVED' if has_geo_coords else 'FAILED'}")
-
-                return True
-
-            except Exception as e:
-                from opentelemetry import trace as _trace
-                _trace.get_current_span().record_exception(e)
-                root.set_attribute("success", False)
-                print(f"Pipeline failed: {e}")
-                import traceback
-                traceback.print_exc()
-                return False
+        except Exception as e:
+            # from opentelemetry import trace as _trace
+            # _trace.get_current_span().record_exception(e)
+            # root.set_attribute("success", False)
+            print(f"Pipeline failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
 
     def stop(self):
-        """Clean shutdown of Spark session."""
+        """Stop Spark session."""
         self.spark.stop()
-        print("Spark session stopped")
-
-
+        print("Spark session stopped.")
 if __name__ == "__main__":
     pipeline = SupplyChainDataPipeline()
-
     try:
-        # utc time
         today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         success = pipeline.run_pipeline(today_str)
         exit_code = 0 if success else 1
@@ -662,5 +634,4 @@ if __name__ == "__main__":
         exit_code = 1
     finally:
         pipeline.stop()
-
     exit(exit_code)
